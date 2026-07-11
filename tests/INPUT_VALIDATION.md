@@ -1,7 +1,7 @@
 # 连发输入验证方案
 
 - 魔改版作者与提交者：chenyu <fdola@qq.com>
-- 发布版本：`v0.1.3-chenyu.1`
+- 发布版本：`v0.1.3.1`
 - 最终成品：`dist/DNFAutoFire.exe`
 
 ## 根因
