@@ -7,8 +7,8 @@
 ;@Ahk2Exe-SetCopyright 某亚瑟
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetProductName DAF连发工具
-;@Ahk2Exe-SetProductVersion 0.1.0
-;@Ahk2Exe-SetVersion 0.1.0
+;@Ahk2Exe-SetProductVersion 0.1.3.1
+;@Ahk2Exe-SetVersion 0.1.3.1
 
 #NoEnv
 
@@ -24,7 +24,7 @@ SetBatchLines, -1
 ListLines, Off
 SetStoreCapslockMode, Off
 
-global __Version := "0.1.2Fix3"
+global __Version := "0.1.3-chenyu.1"
 
 #Include <RunWithAdministrator>
 #Include <MultipleThread>

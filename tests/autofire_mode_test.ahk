@@ -13,7 +13,8 @@ AssertEqual(actual, expected, message) {
 
 AssertEqual(AutoFireIsPulse10Test("DNFAutoFire_pulse10_test.exe"), 1, "10ms pulse build must identify itself")
 AssertEqual(AutoFireIsPulse10Test("DNFAutoFire_combined_test.exe"), 1, "combined build must enable pulse mode")
-AssertEqual(AutoFireIsPulse10Test("DNFAutoFire.exe"), 0, "stable build must not enable pulse mode")
+AssertEqual(AutoFireIsPulse10Test("DNFAutoFire.exe"), 1, "final build must enable pulse mode")
+AssertEqual(AutoFireIsPulse10Test("DAF连发工具.ahk"), 0, "uncompiled source run must not silently enable pulse mode")
 
 twoKeys := ["F7", "Numpad3"]
 AssertEqual(AutoFireGetStartDelay("F7", twoKeys, "DNFAutoFire_combined_test.exe"), 0, "first arbitrary key must keep phase 0")
@@ -23,7 +24,8 @@ AssertEqual(AutoFireGetStartDelay("Q", threeKeys, "DNFAutoFire_combined_test.exe
 AssertEqual(AutoFireGetStartDelay("Space", threeKeys, "DNFAutoFire_combined_test.exe"), 5, "second of three keys must use phase 5")
 AssertEqual(AutoFireGetStartDelay("Left", threeKeys, "DNFAutoFire_combined_test.exe"), 10, "third of three keys must use phase 10")
 AssertEqual(AutoFireIsStaggerTest("DNFAutoFire_combined_test.exe"), 1, "combined build must enable staggering")
-AssertEqual(AutoFireIsStaggerTest("DNFAutoFire.exe"), 0, "stable build must not enable staggering")
+AssertEqual(AutoFireIsStaggerTest("DNFAutoFire.exe"), 1, "final build must enable staggering")
+AssertEqual(AutoFireIsStaggerTest("DAF连发工具.ahk"), 0, "uncompiled source run must not silently enable staggering")
 
 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
 startTime := A_TickCount
