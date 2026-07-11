@@ -122,8 +122,6 @@ Gui Main:Add, Text, vNumLk gMainKeyClick x770 y80 w36 h36 +0x200 +0x400000 +Cent
 Gui Main:Font
 
 Gui Main:Font, s9
-Gui Main:Add, Text, x770 y34, 当前版本: v%__Version%
-Gui Main:Add, Link, x770 y54, <a href="https://bbs.colg.cn/thread-8894989-1-1.html">Colg</a> <a href="https://github.com/mouyase/DNFAutoFire">Github</a>
 Gui Main:Add, Button, gMainClear x890 y30 w36 h36 +0x200 +Center, 清空
 Gui Main:Font
 
@@ -141,19 +139,18 @@ Gui Main:Add, Text, x150 y450 w72 h24 +0x200, 快速切换热键
 Gui Main:Add, Hotkey, vQuickChangeHotKey gMainSaveQuickChangeHotKey x150 y474 w120 h20
 
 Gui Main:Add, Button, gMainSetting x838 y305 w96 h60, 软件设置
-Gui Main:Add, Button, vMainCheckUpdate gMainCheckUpdate x838 y372 w96 h60, 检查更新
-Gui Main:Add, Button, gMainStart x838 y440 w96 h60, 启动连发
+Gui Main:Add, Button, gMainStart x838 y372 w96 h128, 启动连发
 
 Gui Main:Add, GroupBox, x290 y300 w538 h200, 其他功能
 
-Gui Main:Add, CheckBox, vYuanDiAttack x298 y320 h20 w16
-Gui Main:Add, Link, gMainYuanDiAttack x316 y323 h20, <a>原地平X(Beta)</a>
-Gui Main:Add, CheckBox, vLvRen x298 y340 h20 w16
-Gui Main:Add, Link, gMainLvRen x316 y343 h20, <a>旅人自动流星</a>
-Gui Main:Add, CheckBox, vZhanFa x298 y360 h20 w16
-Gui Main:Add, Link, gMainZhanFa x316 y363 h20, <a>战法自动炫纹</a>
-Gui Main:Add, CheckBox, vJianZong x298 y380 h20 w16
-Gui Main:Add, Link, gMainJianZong x316 y383 h20, <a>太宗帝剑延迟</a>
+Gui Main:Add, CheckBox, vLvRen x298 y320 h20 w16
+Gui Main:Add, Link, gMainLvRen x316 y323 h20, <a>旅人自动流星</a>
+Gui Main:Add, CheckBox, vZhanFa x298 y340 h20 w16
+Gui Main:Add, Link, gMainZhanFa x316 y343 h20, <a>战法自动炫纹</a>
+Gui Main:Add, CheckBox, vJianZong x298 y360 h20 w16
+Gui Main:Add, Link, gMainJianZong x316 y363 h20, <a>太宗帝剑延迟</a>
+Gui Main:Add, CheckBox, vCombo x298 y380 h20 w16
+Gui Main:Add, Link, gMainCombo x316 y383 h20, <a>一键连招</a>
 
 ShowGuiMain(){
     Gui Main:Show, w940 h510, DAF连发工具 - DNF AutoFire
@@ -293,45 +290,40 @@ MainLoadAllPreset(){
     Gui Main:Submit, NoHide
 }
 
-; 主界面点击检查更新
+; 主界面点击软件设置
 MainSetting(){
     ShowGuiSetting()
-}
-
-; 主界面点击检查更新
-MainCheckUpdate(){
-    GetUpdateInfo()
 }
 
 ; 主界面额外保存
 MainSaveEx(){
     global PresetNameEdit
-    global YuanDiAttack
     global LvRen
     global ZhanFa
     global JianZong
+    global Combo
     Gui Main:Submit, NoHide
     presetName := PresetNameEdit
-    SavePreset(presetName,"YuanDiAttackState", YuanDiAttack)
     SavePreset(presetName,"LvRenState", LvRen)
     SavePreset(presetName,"ZhanFaState", ZhanFa)
     SavePreset(presetName,"JianZongState", JianZong)
+    SavePreset(presetName,"ComboState", Combo)
 }
 
 ; 主界面额外读取
 MainLoadEx(){
-    global YuanDiAttack
     global LvRen
     global ZhanFa
     global JianZong
-    YuanDiAttack := LoadPreset(GetNowSelectPreset(),"YuanDiAttackState", false)
-    GuiControl Main:, YuanDiAttack, %YuanDiAttack%
+    global Combo
     LvRen:= LoadPreset(GetNowSelectPreset(),"LvRenState", false)
     GuiControl Main:, LvRen, %LvRen%
     ZhanFa:= LoadPreset(GetNowSelectPreset(),"ZhanFaState", false)
     GuiControl Main:, ZhanFa, %ZhanFa%
     JianZong:= LoadPreset(GetNowSelectPreset(),"JianZongState", false)
     GuiControl Main:, JianZong, %JianZong%
+    Combo:= LoadPreset(GetNowSelectPreset(),"ComboState", false)
+    GuiControl Main:, Combo, %Combo%
 }
 
 ; 主界面选择旅人功能
@@ -349,9 +341,9 @@ MainJianZong(){
     ShowGuiJianZong()
 }
 
-; 主界面选择原地平X功能
-MainYuanDiAttack(){
-    ShowGuiYuanDiAttack()
+; 主界面选择一键连招功能
+MainCombo(){
+    ShowGuiCombo()
 }
 
 ; 主界面配置列表点击事件

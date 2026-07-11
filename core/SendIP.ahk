@@ -1,6 +1,14 @@
 SendIP(keyCode){
     SendInput, {Blind}{%keyCode% DownTemp}
-    Sleep, 1
+    if (AutoFireIsPulse10Test()) {
+        AutoFireApplyPulseDelay(10)
+    } else {
+        Sleep, 1
+    }
     SendInput, {Blind}{%keyCode% Up}
-    Sleep, 1
+    if (AutoFireIsPulse10Test()) {
+        AutoFireApplyPulseDelay(10)
+    } else {
+        Sleep, 1
+    }
 }

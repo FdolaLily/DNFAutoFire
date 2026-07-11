@@ -35,23 +35,23 @@ global __Version := "0.1.2Fix3"
 #Include ./core/SendIP.ahk
 #Include ./core/CheckDNFWindow.ahk
 #Include ./core/KeyConvert.ahk
+#Include ./core/KeyValidation.ahk
+#Include ./core/AutoFireMode.ahk
 #Include ./core/Config.ahk
 #Include ./core/AutoFire.ahk
 #Include ./core/Scripts.ahk
-#Include ./core/Http.ahk
+#Include ./core/Combo.ahk
 #Include ./core/ReleaseKeys.ahk
 #Include ./gui/Main.ahk
 #Include ./gui/QuickSwitch.ahk
-#Include ./gui/UpdateProgress.ahk
 #Include ./gui/Setting.ahk
+#Include ./gui/ex/Combo.ahk
 #Include ./gui/ex/LvRen.ahk
 #Include ./ex/ExLvRen.ahk
 #Include ./gui/ex/ZhanFa.ahk
 #Include ./ex/ExZhanFa.ahk
 #Include ./gui/ex/JianZong.ahk
 #Include ./ex/ExJianZong.ahk
-#Include ./gui/ex/YuanDiAttack.ahk
-#Include ./ex/ExYuanDiAttack.ahk
 
 ;@Ahk2Exe-IgnoreBegin
 #Include <Log>
@@ -79,6 +79,7 @@ Exit(){
 global _AutoFireThreads := []
 global _AutoFireEnableKeys := []
 global _NowSelectPreset := LoadLastPreset()
+OnExit("CleanupBeforeExit")
 
 ShowGuiMain()
 SetDNFWindowClass()
@@ -88,3 +89,7 @@ if(_AutoStart){
 }
 
 return
+
+CleanupBeforeExit(exitReason, exitCode){
+    StopAutoFire()
+}

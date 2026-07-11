@@ -8,9 +8,12 @@ Gui ZhanFa:Add, Text, x8 y8 w80 h20 +0x200, 已添加技能键
 Gui ZhanFa:Add, Text, x96 y100 w80 h20 +0x200, 炫纹发射键
 Gui ZhanFa:Add, Button, gZhanFaSave x96 y178 w80 h27, 保存
 Gui ZhanFa:Add, Button, gZhanFaHelp x158 y8 w18 h18, ?
+Gui ZhanFa:Font, cRed
+Gui ZhanFa:Add, Text, x8 y214 w168 h76, 说明：按住已添加的技能键时自动发射炫纹。`n限制：发射键必须是数字小键盘按键。`n提示：使用时先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
+Gui ZhanFa:Font
 
 ShowGuiZhanFa(){
-    Gui ZhanFa:Show, w184 h210, 战法自动炫纹
+    Gui ZhanFa:Show, w184 h298, 战法自动炫纹
     ZhanFaLoadConfig()
     DisableGuiMain()
 }
@@ -29,7 +32,7 @@ ZhanFaGuiClose(){
 }
 
 ZhanFaHelp(){
-    MsgBox 0x2020, 你的数据很差, 你的数据很差，我现在玩战法每130s只要能射出300次炫纹，每次差不多34824％的等效百分比，就能有相当于10447200％的输出水平，换算过来狠狠地超越了精灵骑士的三觉数据。虽然我作为爆发职业没有一个技能超过3000000％，作为续航职业没有一个技能秒伤能超过90000％，但是我的炫纹已经超越了地下城绝大多数职业(包括你)的水平，这便是战斗法师给我的骄傲的资本。
+    MsgBox 0x2040, 战法自动炫纹, 1、添加需要触发自动炫纹的技能键。`n2、将炫纹发射键设置为数字小键盘按键。`n3、按住任一已添加的技能键时，工具会自动高速发射炫纹。`n4、使用时先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
 }
 
 global __ZhanFaSkillKeys := []
@@ -55,13 +58,19 @@ ZhanFaDeleteKey(){
 }
 
 ZhanFaSave(){
-    ZhanFaSaveConfig()
-    HideGuiZhanFa()
+    if (ZhanFaSaveConfig()) {
+        HideGuiZhanFa()
+    }
 }
 
 ZhanFaSetShotKey(){
     key := GetPressKey()
+    if (!ZhanFaIsNumpadKey(key)) {
+        MsgBox 0x2030, 战法自动炫纹, 炫纹发射键必须是数字小键盘按键，请重新设置。
+        return
+    }
     GuiControl ZhanFa:, ZhanFaShotKey, %key%
+    MsgBox 0x2040, 战法自动炫纹, 设置完成。`n`n使用时请先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
 }
 
 ; 战法功能模块修改列表
@@ -81,6 +90,10 @@ ZhanFaSaveConfig(){
     global __ZhanFaSkillKeys
     global ZhanFaShotKey
     Gui ZhanFa:Submit, NoHide
+    if (!ZhanFaIsNumpadKey(ZhanFaShotKey)) {
+        MsgBox 0x2030, 战法自动炫纹, 炫纹发射键必须是数字小键盘按键，请重新设置。
+        return false
+    }
     keysString := ""
     for k,v in __ZhanFaSkillKeys
     {
@@ -89,13 +102,17 @@ ZhanFaSaveConfig(){
     keysString := SubStr(keysString, 1, StrLen(keysString) - 1)
     SavePreset(GetNowSelectPreset(),"ZhanFaSkillKeys", keysString)
     SavePreset(GetNowSelectPreset(),"ZhanFaShotKey", ZhanFaShotKey)
+    return true
 }
 
 ; 战法功能模块读取配置
 ZhanFaLoadConfig(){
     global __ZhanFaSkillKeys
     nowSelectPreset := GetNowSelectPreset()
-    shotKey := LoadPreset(GetNowSelectPreset(), "ZhanFaShotKey", "Space")
+    shotKey := LoadPreset(GetNowSelectPreset(), "ZhanFaShotKey")
+    if (!ZhanFaIsNumpadKey(shotKey)) {
+        shotKey := ""
+    }
     __ZhanFaSkillKeys := ZhanFaLoadKeys(GetNowSelectPreset())
     ZhanFaChangeListGui(__ZhanFaSkillKeys)
     GuiControl ZhanFa:, ZhanFaShotKey, %shotKey%

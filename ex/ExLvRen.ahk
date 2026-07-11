@@ -1,5 +1,4 @@
 ﻿ExLvRen(){
-    Process, Priority,, High
     SetDNFWindowClass()
     presetName := LoadLastPreset()
     if(LoadPreset(LoadLastPreset(),"LvRenState")){

@@ -1,2 +1,7 @@
 config.ini
 DAF连发工具.exe
+build/
+dist/
+.codegraph/
+__pycache__/
+*.pyc

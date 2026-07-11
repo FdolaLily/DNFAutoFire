@@ -1,6 +1,5 @@
 ReleaseKeys(){
     SetKeyDelay, -1, 1
-    Process, Priority,, High
     loop {
         if (GetKeyState("Shift") && !GetKeyState("Shift", "P")) {
             SendInput, {Blind}{LShift Up}
@@ -14,6 +13,6 @@ ReleaseKeys(){
             SendInput, {Blind}{LAlt Up}
             SendInput, {Blind}{RAlt Up}
         }
-        Sleep, 1
+        Sleep, 5
     }
 }

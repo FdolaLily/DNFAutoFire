@@ -8,7 +8,7 @@ Gui Setting:Add, Button, gSettingSave x310 y250 w80 h40, 保存
 Gui Setting:Tab, 帮助说明
 Gui Setting:Add, Text, x16 y32 w368 h268, 如何使用DAF连发工具`n`n1、点击窗口中的键盘，将想启动连发的键位变成红色`n2、输入配置名称，保存配置`n3、点击启动连发，即可使用`n`nPS：在游戏中可以打开快速切换窗口，使用上下键和回车可以快速切换已经保存的配置，记得设置快捷键哦`n默认快捷键 Alt + `` （键盘1左边，Tab上边的那个）
 Gui Setting:Tab, 关于
-Gui Setting:Add, Link, x16 y32 w368 h268, 作者： 某亚瑟`n图标： Ousumu`n`n源码：<a href="https://github.com/mouyase/DNFAutoFire">https://github.com/mouyase/DNFAutoFire</a>
+Gui Setting:Add, Text, x16 y32 w368 h268, 作者： 某亚瑟`n图标： Ousumu
 
 SettingGuiEscape(){
     HideGuiSetting()

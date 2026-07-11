@@ -1,9 +1,11 @@
 ﻿ExZhanFa(){
-    Process, Priority,, High
     SetDNFWindowClass()
     presetName := LoadLastPreset()
     if(LoadPreset(LoadLastPreset(),"ZhanFaState")){
         ShotKey := LoadPreset(LoadLastPreset(), "ZhanFaShotKey")
+        if (!ZhanFaIsNumpadKey(ShotKey)) {
+            return
+        }
         SkillKeys := ZhanFaLoadKeys(LoadLastPreset())
         keyCode := Key2NoVkSC(ShotKey)
         pressKeys := []
@@ -23,6 +25,7 @@
                     SendIP(keyCode)
                 }
             }
+            ; 保留原版额外的抬起采样窗口，避免下一轮 Down 过早覆盖 Up。
             Sleep, 1
         }
     }

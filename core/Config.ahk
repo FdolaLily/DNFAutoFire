@@ -61,6 +61,17 @@ LoadPresetKeys(presetsName){
     return keys
 }
 
+; 保存预设的一键连招
+SavePresetCombos(presetsName, comboGroups){
+    SavePreset(presetsName, "combos", ComboSerializeGroups(comboGroups))
+}
+
+; 读取预设的一键连招
+LoadPresetCombos(presetsName){
+    config := LoadPreset(presetsName, "combos")
+    return ComboLoadGroups(config)
+}
+
 ; 读取所有预设
 LoadAllPreset(){
     IniRead, config, config.ini

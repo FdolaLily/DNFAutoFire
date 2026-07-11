@@ -1,12 +1,11 @@
 ﻿ExJianZong(){
-    Process, Priority,, High
     SetDNFWindowClass()
     presetName := LoadLastPreset()
     if(LoadPreset(LoadLastPreset(),"JianZongState")){
         skillKey := LoadPreset(LoadLastPreset(), "JianZongSkillKey")
         delay := LoadPreset(LoadLastPreset(), "JianZongDelay")
         keyCode := Key2NoVkSC(skillKey)
-        pressKey := Key2PressKey(key)
+        pressKey := Key2PressKey(skillKey)
         counterTime := 0
         time := A_TickCount
         loop {
@@ -15,12 +14,14 @@
                     counterTime := A_TickCount - time
                     if(counterTime > delay){
                         SendIP(keyCode)
+                    }else{
+                        Sleep, 1
                     }
                 }
                 counterTime := 0
                 time := A_TickCount
             }
-            Sleep, 1
+            Sleep, 5
         }
     }
 }

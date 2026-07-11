@@ -111,9 +111,12 @@ GetOriginKeyName(key){
 ; 用于屏蔽按键原始功能
 OriginalBlocking(key){
     SendInput, {Blind}{%key% DownTemp}
-    Sleep, 1
-    KeyWait, %key%
-    SendInput, {Blind}{%key% Up}
+    try {
+        KeyWait, %key%
+    } finally {
+        ; 不论热键线程如何结束，都保证 Down/Up 成对。
+        SendInput, {Blind}{%key% Up}
+    }
 }
 
 ; 屏蔽按键原始功能
@@ -154,31 +157,40 @@ SetTrayRunningIcon(state){
 StartAutoFire(){
     global _AutoFireEnableKeys
     global _AutoFireThreads
+    ; 避免重复启动留下旧子进程、热键或逻辑按下状态。
+    StopAutoFire()
     _AutoFireThreads := []
     for _, key in _AutoFireEnableKeys {
+        if (ComboIsTriggerKey(key)) {
+            continue
+        }
         SetOriginalBlocking(key)
         _AutoFireThreads.Push(new Thread(key))
     }
     Sleep, 10
     _AutoFireThreads.Push(new Thread("ReleaseKeys"))
+    StartComboHotkeys()
     StartEx()
     SoundPlay *64
     SetTrayRunningIcon(true)
     nowSelectPreset := GetNowSelectPreset()
-    ShowTip("连发已启动 - " . nowSelectPreset)
+    if (InStr(A_ScriptName, "_combined_test")) {
+        modeLabel := " - 10ms脉冲+多键动态错峰测试"
+    } else if (AutoFireIsPulse10Test()) {
+        modeLabel := " - 10ms高精度脉冲测试"
+    } else if (AutoFireIsStaggerTest()) {
+        modeLabel := " - 多键动态错峰测试"
+    } else {
+        modeLabel := ""
+    }
+    ShowTip("连发已启动 - " . nowSelectPreset . modeLabel)
 }
 
 StartEx(){
     global _AutoFireThreads
-    global YuanDiAttack
     global LvRen
     global ZhanFa
     global JianZong
-    if(YuanDiAttack){
-        skillKey := LoadPreset(GetNowSelectPreset(), "YuanDiAttackSkillKey")
-        SetOriginalBlocking(skillKey)
-        _AutoFireThreads.Push(new Thread("ExYuanDiAttack"))
-    }
     if(LvRen){
         _AutoFireThreads.Push(new Thread("ExLvRen"))
     }
@@ -195,12 +207,29 @@ StartEx(){
 ; 停止连发功能
 StopAutoFire(){
     global _AutoFireThreads
+    ; 先停止可能仍在发送输入的子进程，再解除热键和释放键位。
+    StopComboHotkeys()
+    _AutoFireThreads := []
     allKeys := GetAllKeys()
     for _, key in allKeys {
         SetOriginalDirect(key)
     }
-    _AutoFireThreads := []
+    ReleaseManagedKeys()
     SetTrayRunningIcon(false)
+}
+
+; 只释放已经物理抬起的键，避免停止/切换/退出时遗留卡键，
+; 同时不干扰用户此刻真正按住的键。
+ReleaseManagedKeys(){
+    allKeys := GetAllKeys()
+    for _, key in allKeys {
+        originKey := GetOriginKeyName(key)
+        pressKey := Key2PressKey(originKey)
+        if (!GetKeyState(pressKey, "P")) {
+            keyCode := InStr(originKey, "Num") ? originKey : Key2SC(originKey)
+            SendInput, {Blind}{%keyCode% Up}
+        }
+    }
 }
 
 ; 设置所有关闭连发
@@ -240,6 +269,7 @@ ChangePreset(presetName){
     StopAutoFire()
     presetKeys := LoadPresetKeys(presetName)
     SetAllKeysAutoFire(presetKeys)
+    ComboLoadConfig(presetName)
     SetNowSelectPreset(presetName)
     SaveLastPreset(presetName)
     MainLoadEx()
