@@ -174,8 +174,7 @@ StartAutoFire(){
     SoundPlay *64
     SetTrayRunningIcon(true)
     nowSelectPreset := GetNowSelectPreset()
-    modeLabel := " - 10ms脉冲+多键动态错峰"
-    ShowTip("连发已启动 - " . nowSelectPreset . modeLabel)
+    ShowTip("连发已启动 - " . nowSelectPreset)
 }
 
 StartEx(){

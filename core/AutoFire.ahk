@@ -2,20 +2,24 @@
     SetDNFWindowClass()
     keyCode := Key2NoVkSC(key)
     pressKey := Key2PressKey(key)
+    presetKeys := LoadPresetKeys(LoadLastPreset())
     pulseTimerActive := false
     loop {
         if(WinActive("ahk_group DNF")) {
             if (GetKeyState(pressKey, "P")) {
-                pressedKeys := AutoFireCollectPressedKeys()
-                startDelay := AutoFireGetStartDelay(key, pressedKeys)
-                AutoFireApplyStaggerDelay(startDelay)
-            }
-            if (GetKeyState(pressKey, "P")) {
                 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
                 pulseTimerActive := true
-            }
-            while, GetKeyState(pressKey, "P") {
-                SendIP(keyCode)
+                lastPressedCount := -1
+                while, GetKeyState(pressKey, "P") {
+                    pressedKeys := AutoFireCollectPressedKeys(presetKeys)
+                    pressedCount := pressedKeys.Length()
+                    if (pressedCount != lastPressedCount) {
+                        transitionDelay := AutoFireGetTransitionDelay(key, pressedKeys)
+                        AutoFireApplyStaggerDelay(transitionDelay)
+                        lastPressedCount := pressedCount
+                    }
+                    SendIP(keyCode)
+                }
             }
             if (pulseTimerActive) {
                 DllCall("Winmm\timeEndPeriod", "UInt", 1)
@@ -27,9 +31,11 @@
     }
 }
 
-AutoFireCollectPressedKeys(){
+AutoFireCollectPressedKeys(presetKeys := ""){
     pressedKeys := []
-    presetKeys := LoadPresetKeys(LoadLastPreset())
+    if (!IsObject(presetKeys)) {
+        presetKeys := LoadPresetKeys(LoadLastPreset())
+    }
     for _, configuredKey in presetKeys {
         if (configuredKey == "") {
             continue

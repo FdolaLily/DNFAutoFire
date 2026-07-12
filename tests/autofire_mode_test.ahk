@@ -19,6 +19,16 @@ AssertEqual(AutoFireGetStartDelay("Q", threeKeys), 0, "first of three keys must 
 AssertEqual(AutoFireGetStartDelay("Space", threeKeys), 5, "second of three keys must use phase 5")
 AssertEqual(AutoFireGetStartDelay("Left", threeKeys), 10, "third of three keys must use phase 10")
 
+AssertEqual(AutoFireGetManagedTargetPhase("F7", twoKeys), 0, "first of two held keys must use phase 0")
+AssertEqual(AutoFireGetManagedTargetPhase("Numpad3", twoKeys), 8, "second of two held keys must use fixed phase 8")
+AssertEqual(AutoFireGetManagedTargetPhase("Q", threeKeys), 0, "first of three held keys must use phase 0")
+AssertEqual(AutoFireGetManagedTargetPhase("Space", threeKeys), 8, "second of three held keys must use phase 8")
+AssertEqual(AutoFireGetManagedTargetPhase("Left", threeKeys), 16, "third of three held keys must use phase 16")
+fourKeys := ["Q", "Space", "Left", "F1"]
+AssertEqual(AutoFireGetManagedTargetPhase("F1", fourKeys), -1, "four held keys must fall back to dynamic staggering")
+AssertEqual(AutoFireGetAbsolutePhaseDelay(8, 20, 3), 5, "phase delay must advance to phase 8")
+AssertEqual(AutoFireGetAbsolutePhaseDelay(16, 20, 18), 18, "phase delay must wrap deterministically")
+
 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
 startTime := A_TickCount
 Loop, 10
