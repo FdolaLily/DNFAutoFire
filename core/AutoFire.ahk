@@ -5,12 +5,12 @@
     pulseTimerActive := false
     loop {
         if(WinActive("ahk_group DNF")) {
-            if (GetKeyState(pressKey, "P") && AutoFireIsStaggerTest()) {
+            if (GetKeyState(pressKey, "P")) {
                 pressedKeys := AutoFireCollectPressedKeys()
                 startDelay := AutoFireGetStartDelay(key, pressedKeys)
                 AutoFireApplyStaggerDelay(startDelay)
             }
-            if (GetKeyState(pressKey, "P") && AutoFireIsPulse10Test()) {
+            if (GetKeyState(pressKey, "P")) {
                 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
                 pulseTimerActive := true
             }

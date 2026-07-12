@@ -174,15 +174,7 @@ StartAutoFire(){
     SoundPlay *64
     SetTrayRunningIcon(true)
     nowSelectPreset := GetNowSelectPreset()
-    if (AutoFireIsPulse10Test() && AutoFireIsStaggerTest()) {
-        modeLabel := " - 10ms脉冲+多键动态错峰"
-    } else if (AutoFireIsPulse10Test()) {
-        modeLabel := " - 10ms高精度脉冲测试"
-    } else if (AutoFireIsStaggerTest()) {
-        modeLabel := " - 多键动态错峰测试"
-    } else {
-        modeLabel := ""
-    }
+    modeLabel := " - 10ms脉冲+多键动态错峰"
     ShowTip("连发已启动 - " . nowSelectPreset . modeLabel)
 }
 

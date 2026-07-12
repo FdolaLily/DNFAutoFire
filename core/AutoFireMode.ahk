@@ -1,19 +1,5 @@
-AutoFireIsStaggerTest(scriptName := ""){
-    if (scriptName == "") {
-        scriptName := A_ScriptName
-    }
-    return scriptName == "DNFAutoFire.exe" || InStr(scriptName, "_stagger_test") > 0 || InStr(scriptName, "_combined_test") > 0
-}
-
-AutoFireIsPulse10Test(scriptName := ""){
-    if (scriptName == "") {
-        scriptName := A_ScriptName
-    }
-    return scriptName == "DNFAutoFire.exe" || InStr(scriptName, "_pulse10_test") > 0 || InStr(scriptName, "_combined_test") > 0
-}
-
-AutoFireGetStartDelay(key, pressedKeys, scriptName := ""){
-    if (!AutoFireIsStaggerTest(scriptName) || !IsObject(pressedKeys)) {
+AutoFireGetStartDelay(key, pressedKeys){
+    if (!IsObject(pressedKeys)) {
         return 0
     }
     keyCount := pressedKeys.Length()

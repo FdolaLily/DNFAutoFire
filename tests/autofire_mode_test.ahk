@@ -11,21 +11,13 @@ AssertEqual(actual, expected, message) {
     }
 }
 
-AssertEqual(AutoFireIsPulse10Test("DNFAutoFire_pulse10_test.exe"), 1, "10ms pulse build must identify itself")
-AssertEqual(AutoFireIsPulse10Test("DNFAutoFire_combined_test.exe"), 1, "combined build must enable pulse mode")
-AssertEqual(AutoFireIsPulse10Test("DNFAutoFire.exe"), 1, "final build must enable pulse mode")
-AssertEqual(AutoFireIsPulse10Test("DAF连发工具.ahk"), 0, "uncompiled source run must not silently enable pulse mode")
-
 twoKeys := ["F7", "Numpad3"]
-AssertEqual(AutoFireGetStartDelay("F7", twoKeys, "DNFAutoFire_combined_test.exe"), 0, "first arbitrary key must keep phase 0")
-AssertEqual(AutoFireGetStartDelay("Numpad3", twoKeys, "DNFAutoFire_combined_test.exe"), 8, "second arbitrary key must use phase 8")
+AssertEqual(AutoFireGetStartDelay("F7", twoKeys), 0, "first arbitrary key must keep phase 0")
+AssertEqual(AutoFireGetStartDelay("Numpad3", twoKeys), 8, "second arbitrary key must use phase 8")
 threeKeys := ["Q", "Space", "Left"]
-AssertEqual(AutoFireGetStartDelay("Q", threeKeys, "DNFAutoFire_combined_test.exe"), 0, "first of three keys must use phase 0")
-AssertEqual(AutoFireGetStartDelay("Space", threeKeys, "DNFAutoFire_combined_test.exe"), 5, "second of three keys must use phase 5")
-AssertEqual(AutoFireGetStartDelay("Left", threeKeys, "DNFAutoFire_combined_test.exe"), 10, "third of three keys must use phase 10")
-AssertEqual(AutoFireIsStaggerTest("DNFAutoFire_combined_test.exe"), 1, "combined build must enable staggering")
-AssertEqual(AutoFireIsStaggerTest("DNFAutoFire.exe"), 1, "final build must enable staggering")
-AssertEqual(AutoFireIsStaggerTest("DAF连发工具.ahk"), 0, "uncompiled source run must not silently enable staggering")
+AssertEqual(AutoFireGetStartDelay("Q", threeKeys), 0, "first of three keys must use phase 0")
+AssertEqual(AutoFireGetStartDelay("Space", threeKeys), 5, "second of three keys must use phase 5")
+AssertEqual(AutoFireGetStartDelay("Left", threeKeys), 10, "third of three keys must use phase 10")
 
 DllCall("Winmm\timeBeginPeriod", "UInt", 1)
 startTime := A_TickCount
