@@ -1,19 +1,20 @@
 ﻿Gui ZhanFa:+ToolWindow +Owner%A_DefaultGui%
 Gui ZhanFa:Add, ListBox, vZhanFaKeysListBox x8 y32 w80 h172
-Gui ZhanFa:Add, Edit, vZhanFaShotKey x96 y120 w80 h20 +ReadOnly -WantCtrlA
+Gui ZhanFa:Add, Edit, vZhanFaShotKey hwndZhanFaShotKeyHwnd x96 y120 w80 h20 +ReadOnly -WantCtrlA
 Gui ZhanFa:Add, Button, gZhanFaAddKey x96 y40 w80 h22, 添加技能键
 Gui ZhanFa:Add, Button, gZhanFaDeleteKey x96 y70 w80 h22, 删除技能键
-Gui ZhanFa:Add, Button, gZhanFaSetShotKey x96 y148 w80 h22, 设置发射键
 Gui ZhanFa:Add, Text, x8 y8 w80 h20 +0x200, 已添加技能键
 Gui ZhanFa:Add, Text, x96 y100 w80 h20 +0x200, 炫纹发射键
-Gui ZhanFa:Add, Button, gZhanFaSave x96 y178 w80 h27, 保存
+Gui ZhanFa:Add, Button, gZhanFaSave x96 y150 w80 h27, 保存
 Gui ZhanFa:Add, Button, gZhanFaHelp x158 y8 w18 h18, ?
 Gui ZhanFa:Font, cRed
-Gui ZhanFa:Add, Text, x8 y214 w168 h76, 说明：按住已添加的技能键时自动发射炫纹。`n限制：发射键必须是数字小键盘按键。`n提示：使用时先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
+Gui ZhanFa:Add, Text, x8 y184 w168 h76, 说明：按住已添加的技能键时自动发射炫纹。`n限制：发射键必须是数字小键盘按键。`n提示：使用时先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
 Gui ZhanFa:Font
 
+RegisterDirectKeyInput("ZhanFa", "ZhanFaShotKey", ZhanFaShotKeyHwnd)
+
 ShowGuiZhanFa(){
-    Gui ZhanFa:Show, w184 h298, 战法自动炫纹
+    Gui ZhanFa:Show, w184 h268, 战法自动炫纹
     ZhanFaLoadConfig()
     DisableGuiMain()
 }
@@ -61,16 +62,6 @@ ZhanFaSave(){
     if (ZhanFaSaveConfig()) {
         HideGuiZhanFa()
     }
-}
-
-ZhanFaSetShotKey(){
-    key := GetPressKey()
-    if (!ZhanFaIsNumpadKey(key)) {
-        MsgBox 0x2030, 战法自动炫纹, 炫纹发射键必须是数字小键盘按键，请重新设置。
-        return
-    }
-    GuiControl ZhanFa:, ZhanFaShotKey, %key%
-    MsgBox 0x2040, 战法自动炫纹, 设置完成。`n`n使用时请先按住炫纹发射键，再按 Num Lock 关闭数字小键盘。
 }
 
 ; 战法功能模块修改列表

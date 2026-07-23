@@ -110,12 +110,17 @@ GetOriginKeyName(key){
 
 ; 用于屏蔽按键原始功能
 OriginalBlocking(key){
+    refreshKey := OneKeyRunGetRefreshCandidate()
+    refreshEpoch := OneKeyRunNotifyBlockingInput(key)
     SendInput, {Blind}{%key% DownTemp}
     try {
         KeyWait, %key%
     } finally {
         ; 不论热键线程如何结束，都保证 Down/Up 成对。
         SendInput, {Blind}{%key% Up}
+    }
+    if (refreshKey != "") {
+        OneKeyRunRefreshRunningDirection(refreshKey, refreshEpoch)
     }
 }
 
@@ -137,8 +142,13 @@ SetOriginalDirect(key){
     if (!InStr(keyName, "Num")){
         keyName := Key2SC(keyName)
     }
+    downHotkey := "$*" . keyName
+    upHotkey := downHotkey . " Up"
     try{
-        Hotkey, $*%keyName%, Off
+        Hotkey, %downHotkey%, Off
+    }
+    try{
+        Hotkey, %upHotkey%, Off
     }
 }
 
@@ -160,8 +170,12 @@ StartAutoFire(){
     ; 避免重复启动留下旧子进程、热键或逻辑按下状态。
     StopAutoFire()
     _AutoFireThreads := []
+    runKeys := OneKeyRunGetCurrentKeys()
     for _, key in _AutoFireEnableKeys {
         if (ComboIsTriggerKey(key)) {
+            continue
+        }
+        if (OneKeyRunContainsKey(runKeys, key)) {
             continue
         }
         SetOriginalBlocking(key)
@@ -169,6 +183,7 @@ StartAutoFire(){
     }
     Sleep, 10
     _AutoFireThreads.Push(new Thread("ReleaseKeys"))
+    OneKeyRunStartForPreset()
     StartComboHotkeys()
     StartEx()
     SoundPlay *64
@@ -201,6 +216,7 @@ StopAutoFire(){
     ; 先停止可能仍在发送输入的子进程，再解除热键和释放键位。
     StopComboHotkeys()
     _AutoFireThreads := []
+    OneKeyRunShutdown()
     allKeys := GetAllKeys()
     for _, key in allKeys {
         SetOriginalDirect(key)

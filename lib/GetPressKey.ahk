@@ -13,9 +13,10 @@ GetPressKey(){
     return key
 }
 
-GetUserInputKey(){
+GetUserInputKey(suppress := false){
     ih := InputHook("L0")
-    ih.KeyOpt("{All}", "E")
+    keyOptions := suppress ? "ES" : "E"
+    ih.KeyOpt("{All}", keyOptions)
     ih.KeyOpt("{LWin}{RWin}{AppsKey}", "-E")
     ih.Start()
     ih.Wait()

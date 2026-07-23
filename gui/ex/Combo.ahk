@@ -3,36 +3,30 @@ Gui Combo:Add, Text, x8 y8 w120 h20 +0x200, 已添加连招
 Gui Combo:Add, ListBox, vComboGroupsListBox gComboChangeList x8 y32 w210 h188
 
 Gui Combo:Add, Text, x230 y8 w56 h20 +0x200, 触发键
-Gui Combo:Add, Edit, vComboTriggerKey x286 y8 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetTriggerKey x356 y7 w70 h22, 设置
+Gui Combo:Add, Edit, vComboTriggerKey hwndComboTriggerKeyHwnd x286 y8 w140 h20 +ReadOnly -WantCtrlA
 
 Gui Combo:Add, Text, x230 y40 w24 h20 +0x200, 1
-Gui Combo:Add, Edit, vComboKey1 x254 y40 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetKey1 x324 y39 w50 h22, 设置
+Gui Combo:Add, Edit, vComboKey1 hwndComboKey1Hwnd x254 y40 w120 h20 +ReadOnly -WantCtrlA
 Gui Combo:Add, Edit, vComboInterval1 x382 y40 w56 h20 +Number, 0
 Gui Combo:Add, Text, x442 y40 w28 h20 +0x200, ms
 
 Gui Combo:Add, Text, x230 y68 w24 h20 +0x200, 2
-Gui Combo:Add, Edit, vComboKey2 x254 y68 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetKey2 x324 y67 w50 h22, 设置
+Gui Combo:Add, Edit, vComboKey2 hwndComboKey2Hwnd x254 y68 w120 h20 +ReadOnly -WantCtrlA
 Gui Combo:Add, Edit, vComboInterval2 x382 y68 w56 h20 +Number, 0
 Gui Combo:Add, Text, x442 y68 w28 h20 +0x200, ms
 
 Gui Combo:Add, Text, x230 y96 w24 h20 +0x200, 3
-Gui Combo:Add, Edit, vComboKey3 x254 y96 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetKey3 x324 y95 w50 h22, 设置
+Gui Combo:Add, Edit, vComboKey3 hwndComboKey3Hwnd x254 y96 w120 h20 +ReadOnly -WantCtrlA
 Gui Combo:Add, Edit, vComboInterval3 x382 y96 w56 h20 +Number, 0
 Gui Combo:Add, Text, x442 y96 w28 h20 +0x200, ms
 
 Gui Combo:Add, Text, x230 y124 w24 h20 +0x200, 4
-Gui Combo:Add, Edit, vComboKey4 x254 y124 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetKey4 x324 y123 w50 h22, 设置
+Gui Combo:Add, Edit, vComboKey4 hwndComboKey4Hwnd x254 y124 w120 h20 +ReadOnly -WantCtrlA
 Gui Combo:Add, Edit, vComboInterval4 x382 y124 w56 h20 +Number, 0
 Gui Combo:Add, Text, x442 y124 w28 h20 +0x200, ms
 
 Gui Combo:Add, Text, x230 y152 w24 h20 +0x200, 5
-Gui Combo:Add, Edit, vComboKey5 x254 y152 w64 h20 +ReadOnly -WantCtrlA
-Gui Combo:Add, Button, gComboSetKey5 x324 y151 w50 h22, 设置
+Gui Combo:Add, Edit, vComboKey5 hwndComboKey5Hwnd x254 y152 w120 h20 +ReadOnly -WantCtrlA
 Gui Combo:Add, Edit, vComboInterval5 x382 y152 w56 h20 +Number, 0
 Gui Combo:Add, Text, x442 y152 w28 h20 +0x200, ms
 
@@ -40,6 +34,13 @@ Gui Combo:Add, Button, gComboAddOrUpdate x230 y190 w70 h26, 添加/更新
 Gui Combo:Add, Button, gComboDelete x306 y190 w50 h26, 删除
 Gui Combo:Add, Button, gComboClearEditor x362 y190 w50 h26, 清空
 Gui Combo:Add, Button, gComboSave x418 y190 w50 h26, 保存
+
+RegisterDirectKeyInput("Combo", "ComboTriggerKey", ComboTriggerKeyHwnd)
+RegisterDirectKeyInput("Combo", "ComboKey1", ComboKey1Hwnd)
+RegisterDirectKeyInput("Combo", "ComboKey2", ComboKey2Hwnd)
+RegisterDirectKeyInput("Combo", "ComboKey3", ComboKey3Hwnd)
+RegisterDirectKeyInput("Combo", "ComboKey4", ComboKey4Hwnd)
+RegisterDirectKeyInput("Combo", "ComboKey5", ComboKey5Hwnd)
 
 global __ComboEditGroups := []
 global __ComboSelectedIndex := 0
@@ -61,37 +62,6 @@ ComboGuiEscape(){
 
 ComboGuiClose(){
     HideGuiCombo()
-}
-
-ComboSetTriggerKey(){
-    key := GetPressKey()
-    GuiControl Combo:, ComboTriggerKey, %key%
-}
-
-ComboSetKey1(){
-    ComboSetStepKey(1)
-}
-
-ComboSetKey2(){
-    ComboSetStepKey(2)
-}
-
-ComboSetKey3(){
-    ComboSetStepKey(3)
-}
-
-ComboSetKey4(){
-    ComboSetStepKey(4)
-}
-
-ComboSetKey5(){
-    ComboSetStepKey(5)
-}
-
-ComboSetStepKey(index){
-    key := GetPressKey()
-    controlName := "ComboKey" . index
-    GuiControl Combo:, %controlName%, %key%
 }
 
 ComboReadEditor(){

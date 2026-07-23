@@ -223,33 +223,37 @@ StartComboHotkeys() {
     }
 
     registeredHotkeys := "|"
+    Hotkey, IfWinActive, ahk_group DNF
+    try {
+        for _, group in _ComboGroups {
+            trigger := ComboGetTrigger(group)
+            if (trigger == "") {
+                continue
+            }
 
-    for _, group in _ComboGroups {
-        trigger := ComboGetTrigger(group)
-        if (trigger == "") {
-            continue
+            hotkeyName := ComboKeyToHotkey(trigger)
+            if (InStr(registeredHotkeys, "|" . hotkeyName . "|")) {
+                continue
+            }
+            registeredHotkeys .= hotkeyName . "|"
+            fn := Func("ComboRun").Bind(group)
+            Hotkey, $*%hotkeyName%, %fn%, On
+            _ComboHotkeyTriggers.Push(trigger)
         }
-
-        hotkeyName := ComboKeyToHotkey(trigger)
-        if (InStr(registeredHotkeys, "|" . hotkeyName . "|")) {
-            continue
-        }
-        SetOriginalBlocking(trigger)
-        registeredHotkeys .= hotkeyName . "|"
-        fn := Func("ComboRun").Bind(group)
-        Hotkey, $*%hotkeyName%, %fn%, On
-        _ComboHotkeyTriggers.Push(trigger)
+    } finally {
+        Hotkey, IfWinActive
     }
 }
 
 StopComboHotkeys() {
     global _ComboHotkeyTriggers
+    Hotkey, IfWinActive, ahk_group DNF
     for _, trigger in _ComboHotkeyTriggers {
         hotkeyName := ComboKeyToHotkey(trigger)
         try {
             Hotkey, $*%hotkeyName%, Off
         }
-        SetOriginalDirect(trigger)
     }
+    Hotkey, IfWinActive
     _ComboHotkeyTriggers := []
 }

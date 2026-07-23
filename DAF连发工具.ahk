@@ -7,8 +7,8 @@
 ;@Ahk2Exe-SetCopyright 某亚瑟
 ;@Ahk2Exe-SetLanguage 0x0804
 ;@Ahk2Exe-SetProductName DAF连发工具
-;@Ahk2Exe-SetProductVersion 0.1.3.2
-;@Ahk2Exe-SetVersion 0.1.3.2
+;@Ahk2Exe-SetProductVersion 0.1.3.3
+;@Ahk2Exe-SetVersion 0.1.3.3
 
 #NoEnv
 
@@ -24,7 +24,7 @@ SetBatchLines, -1
 ListLines, Off
 SetStoreCapslockMode, Off
 
-global __Version := "0.1.3.2"
+global __Version := "0.1.3.3"
 
 #Include <RunWithAdministrator>
 #Include <MultipleThread>
@@ -32,6 +32,7 @@ global __Version := "0.1.3.2"
 #Include <JSON>
 #Include <Time>
 #Include <GetPressKey>
+#Include <DirectKeyInput>
 #Include ./core/SendIP.ahk
 #Include ./core/CheckDNFWindow.ahk
 #Include ./core/KeyConvert.ahk
@@ -39,6 +40,7 @@ global __Version := "0.1.3.2"
 #Include ./core/AutoFireMode.ahk
 #Include ./core/Config.ahk
 #Include ./core/AutoFire.ahk
+#Include ./core/OneKeyRun.ahk
 #Include ./core/Scripts.ahk
 #Include ./core/Combo.ahk
 #Include ./core/ReleaseKeys.ahk
@@ -46,6 +48,7 @@ global __Version := "0.1.3.2"
 #Include ./gui/QuickSwitch.ahk
 #Include ./gui/Setting.ahk
 #Include ./gui/ex/Combo.ahk
+#Include ./gui/ex/OneKeyRun.ahk
 #Include ./gui/ex/LvRen.ahk
 #Include ./ex/ExLvRen.ahk
 #Include ./gui/ex/ZhanFa.ahk
@@ -92,4 +95,5 @@ return
 
 CleanupBeforeExit(exitReason, exitCode){
     StopAutoFire()
+    OneKeyRunShutdown()
 }

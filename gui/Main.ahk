@@ -151,6 +151,8 @@ Gui Main:Add, CheckBox, vJianZong x298 y360 h20 w16
 Gui Main:Add, Link, gMainJianZong x316 y363 h20, <a>太宗帝剑延迟</a>
 Gui Main:Add, CheckBox, vCombo x298 y380 h20 w16
 Gui Main:Add, Link, gMainCombo x316 y383 h20, <a>一键连招</a>
+Gui Main:Add, CheckBox, vOneKeyRun x298 y400 h20 w16
+Gui Main:Add, Link, gMainOneKeyRun x316 y403 h20, <a>一键奔跑</a>
 
 ShowGuiMain(){
     Gui Main:Show, w940 h510, DAF连发工具 - DNF AutoFire
@@ -302,12 +304,14 @@ MainSaveEx(){
     global ZhanFa
     global JianZong
     global Combo
+    global OneKeyRun
     Gui Main:Submit, NoHide
     presetName := PresetNameEdit
     SavePreset(presetName,"LvRenState", LvRen)
     SavePreset(presetName,"ZhanFaState", ZhanFa)
     SavePreset(presetName,"JianZongState", JianZong)
     SavePreset(presetName,"ComboState", Combo)
+    SaveConfig("OneKeyRunState", OneKeyRun)
 }
 
 ; 主界面额外读取
@@ -316,6 +320,15 @@ MainLoadEx(){
     global ZhanFa
     global JianZong
     global Combo
+    global OneKeyRun
+    global OneKeyRunUpKey
+    global OneKeyRunDownKey
+    global OneKeyRunLeftKey
+    global OneKeyRunRightKey
+    global OneKeyRunPressDelay
+    global OneKeyRunGapDelay
+    global OneKeyRunGuardDelay
+    global OneKeyRunToggleHotKey
     LvRen:= LoadPreset(GetNowSelectPreset(),"LvRenState", false)
     GuiControl Main:, LvRen, %LvRen%
     ZhanFa:= LoadPreset(GetNowSelectPreset(),"ZhanFaState", false)
@@ -324,6 +337,17 @@ MainLoadEx(){
     GuiControl Main:, JianZong, %JianZong%
     Combo:= LoadPreset(GetNowSelectPreset(),"ComboState", false)
     GuiControl Main:, Combo, %Combo%
+    OneKeyRun := LoadConfig("OneKeyRunState", false)
+    GuiControl Main:, OneKeyRun, %OneKeyRun%
+    runKeys := OneKeyRunGetPresetKeys(GetNowSelectPreset())
+    OneKeyRunUpKey := runKeys[1]
+    OneKeyRunDownKey := runKeys[2]
+    OneKeyRunLeftKey := runKeys[3]
+    OneKeyRunRightKey := runKeys[4]
+    OneKeyRunPressDelay := OneKeyRunGetDelay(LoadConfig("OneKeyRunPressDelay", 30))
+    OneKeyRunGapDelay := OneKeyRunGetDelay(LoadConfig("OneKeyRunGapDelay", 30))
+    OneKeyRunGuardDelay := OneKeyRunGetGuardDelay(LoadConfig("OneKeyRunGuardDelay", 140))
+    OneKeyRunToggleHotKey := LoadConfig("OneKeyRunToggleHotKey", "F10")
 }
 
 ; 主界面选择旅人功能
@@ -344,6 +368,11 @@ MainJianZong(){
 ; 主界面选择一键连招功能
 MainCombo(){
     ShowGuiCombo()
+}
+
+; 主界面选择一键奔跑功能
+MainOneKeyRun(){
+    ShowGuiOneKeyRun()
 }
 
 ; 主界面配置列表点击事件

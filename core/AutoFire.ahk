@@ -36,8 +36,9 @@ AutoFireCollectPressedKeys(presetKeys := ""){
     if (!IsObject(presetKeys)) {
         presetKeys := LoadPresetKeys(LoadLastPreset())
     }
+    runKeys := OneKeyRunGetPresetKeys(LoadLastPreset())
     for _, configuredKey in presetKeys {
-        if (configuredKey == "") {
+        if (configuredKey == "" || OneKeyRunContainsKey(runKeys, configuredKey)) {
             continue
         }
         originKey := GetOriginKeyName(configuredKey)
