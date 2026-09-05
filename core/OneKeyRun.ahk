@@ -105,12 +105,43 @@ OneKeyRunContainsKey(keys, key){
     return false
 }
 
-OneKeyRunHasOtherInputPressed(key){
+OneKeyRunResolvePhysicalKeyState(hookDown, hasVirtualKey, windowsAsyncState){
+    if (!hookDown) {
+        return false
+    }
+    ; 无法映射虚拟键时沿用 AHK 物理状态，避免未知按键被错误放行。
+    if (!hasVirtualKey) {
+        return true
+    }
+    return (windowsAsyncState & 0x8000) != 0
+}
+
+OneKeyRunIsPhysicalKeyPressed(key){
+    hookDown := GetKeyState(key, "P")
+    if (!hookDown) {
+        return false
+    }
+    vk := GetKeyVK(key)
+    windowsAsyncState := vk
+        ? DllCall("User32\GetAsyncKeyState", "Int", vk, "Short")
+        : 0
+    ; NumLock 状态切换等场景可能让 AHK 的 Hook 物理状态永久停在 Down。
+    ; 同时核对 Windows 当前高位，只接受两个状态源均为按下的物理输入。
+    return OneKeyRunResolvePhysicalKeyState(hookDown, vk != 0, windowsAsyncState)
+}
+
+OneKeyRunHasOtherInputPressed(key, physicalStateFn := ""){
     directionKeys := OneKeyRunGetCurrentKeys()
     oppositeKey := OneKeyRunGetOppositeKey(key)
     for _, configuredKey in GetAllKeys() {
         otherKey := OneKeyRunNormalizeKey(configuredKey)
-        if (otherKey != "" && otherKey != key && GetKeyState(otherKey, "P")) {
+        if (otherKey == "" || otherKey == key) {
+            continue
+        }
+        isPressed := IsObject(physicalStateFn)
+            ? physicalStateFn.Call(otherKey)
+            : OneKeyRunIsPhysicalKeyPressed(otherKey)
+        if (isPressed) {
             ; 同时按住的正交方向属于斜向移动，不应取消奔跑确认。
             if (OneKeyRunContainsKey(directionKeys, otherKey) && otherKey != oppositeKey) {
                 continue

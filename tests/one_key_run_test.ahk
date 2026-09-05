@@ -16,7 +16,7 @@ GetNowSelectPreset() {
 }
 
 GetAllKeys() {
-    return ["Up", "Down", "Left", "Right", "Space"]
+    return ["W", "S", "A", "D", "Space", "Numpad5"]
 }
 
 LoadConfig(type, default := "") {
@@ -55,6 +55,10 @@ AssertEqual(actual, expected, message) {
 
 AppendTestEvent(events, eventName) {
     events.Push(eventName)
+}
+
+GetTestPhysicalKeyState(states, key) {
+    return states.HasKey(key) ? states[key] : false
 }
 
 AssertAtomicCommitOrder() {
@@ -100,6 +104,10 @@ AssertEqual(OneKeyRunGetSequentialWaitDelay(100, 140), 250, "second direction mu
 AssertEqual(OneKeyRunGetSequentialWaitDelay(300, 140), 140, "second direction must still satisfy the hold threshold")
 AssertEqual(OneKeyRunGetSwitchDelay(140), 90, "continuous movement switch must use the short asynchronous confirmation")
 AssertEqual(OneKeyRunGetSwitchDelay(60), 60, "custom shorter guard must remain effective")
+AssertEqual(OneKeyRunResolvePhysicalKeyState(true, true, 0), false, "stale AHK physical state must not block running after Windows reports key up")
+AssertEqual(OneKeyRunResolvePhysicalKeyState(true, true, 0x8000), true, "a key held in both physical state sources must remain blocking")
+AssertEqual(OneKeyRunResolvePhysicalKeyState(false, true, 0x8000), false, "injected Windows key state must not impersonate physical input")
+AssertEqual(OneKeyRunResolvePhysicalKeyState(true, false, 0), true, "an unmapped physical key must preserve the conservative AHK state")
 defaultKeys := OneKeyRunGetPresetKeys("test")
 AssertEqual(defaultKeys[1], "Up", "preset without override must use the global Up key")
 AssertEqual(defaultKeys[2], "Down", "preset without override must use the global Down key")
@@ -110,6 +118,18 @@ AssertEqual(OneKeyRunGetDirectionRelation(OneKeyRunNormalizeKey("W"), OneKeyRunN
 
 testKey := OneKeyRunNormalizeKey("W")
 otherDirection := OneKeyRunNormalizeKey("D")
+staleNum5States := {}
+staleNum5States[OneKeyRunNormalizeKey("Numpad5")] := false
+AssertEqual(OneKeyRunHasOtherInputPressed(testKey, Func("GetTestPhysicalKeyState").Bind(staleNum5States)), false, "stale Numpad5 state must not cancel run confirmation")
+heldNum5States := {}
+heldNum5States[OneKeyRunNormalizeKey("Numpad5")] := true
+AssertEqual(OneKeyRunHasOtherInputPressed(testKey, Func("GetTestPhysicalKeyState").Bind(heldNum5States)), true, "a physically held Numpad5 must still cancel run confirmation")
+orthogonalStates := {}
+orthogonalStates[OneKeyRunNormalizeKey("D")] := true
+AssertEqual(OneKeyRunHasOtherInputPressed(testKey, Func("GetTestPhysicalKeyState").Bind(orthogonalStates)), false, "a held orthogonal direction must remain eligible for diagonal running")
+oppositeStates := {}
+oppositeStates[OneKeyRunNormalizeKey("S")] := true
+AssertEqual(OneKeyRunHasOtherInputPressed(testKey, Func("GetTestPhysicalKeyState").Bind(oppositeStates)), true, "a held opposite direction must still cancel run confirmation")
 global _OneKeyRunInputEpoch := 0
 global _OneKeyRunKeyGenerations := {}
 global _OneKeyRunEnabled := true
