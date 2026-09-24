@@ -1,0 +1,39 @@
+// Native client resources, UTF-8 source.
+#pragma code_page(65001)
+1 24 "client.manifest"
+// App icon and tray states (running / stopped); regenerate with scripts/build-icons.py.
+1 ICON "icons/app.ico"
+2 ICON "icons/running.ico"
+3 ICON "icons/stopped.ico"
+// Embedded UI fonts (SIL OFL 1.1, see fonts/OFL.txt); registered privately at runtime.
+201 RCDATA "fonts/NotoSansSC-Regular.ttf"
+202 RCDATA "fonts/NotoSansSC-Medium.ttf"
+203 RCDATA "fonts/NotoSansSC-SemiBold.ttf"
+204 RCDATA "fonts/JetBrainsMono-Regular.ttf"
+205 RCDATA "fonts/JetBrainsMono-Medium.ttf"
+206 RCDATA "fonts/JetBrainsMono-SemiBold.ttf"
+207 RCDATA "fonts/JetBrainsMono-Bold.ttf"
+1 VERSIONINFO
+FILEVERSION 0,1,6,0
+PRODUCTVERSION 0,1,6,0
+FILEOS 0x40004
+FILETYPE 0x1
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "080404B0"
+  BEGIN
+   VALUE "CompanyName", "DNFAutoFire project\0"
+   VALUE "FileDescription", "DNF 连发工具 - 原生 Windows 客户端\0"
+   VALUE "FileVersion", "0.1.6.0\0"
+   VALUE "InternalName", "DNFAutoFire\0"
+   VALUE "OriginalFilename", "DNFAutoFire.exe\0"
+   VALUE "ProductName", "DNFAutoFire\0"
+   VALUE "ProductVersion", "0.1.6.0\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x804, 1200
+ END
+END

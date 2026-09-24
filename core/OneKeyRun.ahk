@@ -15,6 +15,7 @@ global _OneKeyRunPendingKeys := {}
 global _OneKeyRunPressTimes := {}
 global _OneKeyRunInputObserver := ""
 global _OneKeyRunObservedDownKeys := {}
+global _OneKeyRunPhysicalNumpadDownSC := {}
 global _OneKeyRunLastOtherInputKey := ""
 global _OneKeyRunLastOtherInputTime := 0
 global _OneKeyRunRefreshGeneration := 0
@@ -117,6 +118,19 @@ OneKeyRunResolvePhysicalKeyState(hookDown, hasVirtualKey, windowsAsyncState){
 }
 
 OneKeyRunIsPhysicalKeyPressed(key){
+    global _OneKeyRunPhysicalNumpadDownSC
+    ; 托管键的实体输入可能被原生 hook 吞掉，AHK 的物理缓存不再是该键的来源。
+    if (IsFunc("AutoFireNativePhysical")) {
+        nativeState := Func("AutoFireNativePhysical").Call(key)
+        if (nativeState >= 0)
+            return nativeState
+    }
+    sc := GetKeySC(key)
+    if (OneKeyRunIsDualStateNumpadSC(sc)) {
+        ; NumLock 切换会让 Down/Up 的 VK 不同，AHK 和 Windows 均可能残留 Down。
+        ; 只用监听到的实体扫描码配对，不能用虚拟键态初始化或覆盖它。
+        return _OneKeyRunPhysicalNumpadDownSC.HasKey(sc)
+    }
     hookDown := GetKeyState(key, "P")
     if (!hookDown) {
         return false
@@ -128,6 +142,30 @@ OneKeyRunIsPhysicalKeyPressed(key){
     ; NumLock 状态切换等场景可能让 AHK 的 Hook 物理状态永久停在 Down。
     ; 同时核对 Windows 当前高位，只接受两个状态源均为按下的物理输入。
     return OneKeyRunResolvePhysicalKeyState(hookDown, vk != 0, windowsAsyncState)
+}
+
+OneKeyRunIsDualStateNumpadSC(sc){
+    return sc == 0x47 || sc == 0x48 || sc == 0x49
+        || sc == 0x4B || sc == 0x4C || sc == 0x4D
+        || sc == 0x4F || sc == 0x50 || sc == 0x51
+        || sc == 0x52 || sc == 0x53
+}
+
+OneKeyRunPhysicalInputId(key){
+    sc := GetKeySC(key)
+    return sc ? Format("sc{:03X}", sc) : OneKeyRunNormalizeKey(key)
+}
+
+OneKeyRunTrackNumpadInput(sc, down){
+    global _OneKeyRunPhysicalNumpadDownSC
+    if (!OneKeyRunIsDualStateNumpadSC(sc)) {
+        return
+    }
+    if (down) {
+        _OneKeyRunPhysicalNumpadDownSC[sc] := true
+    } else {
+        _OneKeyRunPhysicalNumpadDownSC.Delete(sc)
+    }
 }
 
 OneKeyRunHasOtherInputPressed(key, physicalStateFn := ""){
@@ -208,11 +246,12 @@ OneKeyRunGetObservedKey(vk, sc){
 OneKeyRunObserveKeyDown(inputHook, vk, sc){
     global _OneKeyRunEnabled
     global _OneKeyRunObservedDownKeys
+    OneKeyRunTrackNumpadInput(sc, true)
     keyName := OneKeyRunGetObservedKey(vk, sc)
     if (keyName == "" || OneKeyRunContainsKey(OneKeyRunGetCurrentKeys(), keyName)) {
         return
     }
-    normalizedKey := OneKeyRunNormalizeKey(keyName)
+    normalizedKey := OneKeyRunPhysicalInputId(keyName)
     if (_OneKeyRunObservedDownKeys.HasKey(normalizedKey)) {
         return
     }
@@ -226,7 +265,8 @@ OneKeyRunObserveKeyDown(inputHook, vk, sc){
 
 OneKeyRunNotifyBlockingInput(key){
     global _OneKeyRunObservedDownKeys
-    normalizedKey := OneKeyRunNormalizeKey(key)
+    OneKeyRunTrackNumpadInput(GetKeySC(key), true)
+    normalizedKey := OneKeyRunPhysicalInputId(key)
     if (_OneKeyRunObservedDownKeys.HasKey(normalizedKey)) {
         return OneKeyRunGetInputEpoch()
     }
@@ -238,6 +278,7 @@ OneKeyRunNotifyBlockingInput(key){
 OneKeyRunObserveKeyUp(inputHook, vk, sc){
     global _OneKeyRunActiveKeys
     global _OneKeyRunObservedDownKeys
+    OneKeyRunTrackNumpadInput(sc, false)
     keyName := OneKeyRunGetObservedKey(vk, sc)
     if (keyName == "") {
         return
@@ -250,16 +291,20 @@ OneKeyRunObserveKeyUp(inputHook, vk, sc){
         }
         return
     }
-    if (_OneKeyRunObservedDownKeys.HasKey(normalizedKey)) {
-        _OneKeyRunObservedDownKeys.Delete(normalizedKey)
+    physicalId := OneKeyRunPhysicalInputId(keyName)
+    if (_OneKeyRunObservedDownKeys.HasKey(physicalId)) {
+        _OneKeyRunObservedDownKeys.Delete(physicalId)
     }
 }
 
 OneKeyRunStartInputObserver(){
     global _OneKeyRunInputObserver
+    if (IsObject(_OneKeyRunInputObserver) && _OneKeyRunInputObserver.InProgress) {
+        return
+    }
     OneKeyRunStopInputObserver()
-    ; I1 忽略本工具及连发子进程注入的 SendInput，只观察物理输入。
-    observer := InputHook("V I1")
+    ; L0 不收集文本，避免默认累计 1023 字符后停止监听；I1 忽略连发注入。
+    observer := InputHook("V I1 L0")
     observer.KeyOpt("{All}", "N")
     observer.OnKeyDown := Func("OneKeyRunObserveKeyDown")
     observer.OnKeyUp := Func("OneKeyRunObserveKeyUp")
@@ -729,7 +774,7 @@ ResetOneKeyRunState(){
     global _OneKeyRunObservedDownKeys
     global _OneKeyRunRefreshGeneration
     _OneKeyRunEnabled := false
-    OneKeyRunStopInputObserver()
+    ; 预设切换和奔跑开关期间也必须接收松键，保留实体键状态监听。
     Hotkey, IfWinActive, ahk_group DNF
     for _, keyName in _OneKeyRunRegisteredKeys {
         downHotkey := "$*" . keyName
@@ -751,14 +796,15 @@ ResetOneKeyRunState(){
     _OneKeyRunLastRunReleaseWasStable := false
     _OneKeyRunLastDirectionPressKey := ""
     _OneKeyRunLastDirectionPressTime := 0
-    _OneKeyRunInputEpoch := 0
+    ; 取消代际保持单调，防止旧等待回调在新方案中误匹配同一组令牌。
+    _OneKeyRunInputEpoch += 1
     _OneKeyRunKeyGenerations := {}
     _OneKeyRunPendingKeys := {}
     _OneKeyRunPressTimes := {}
     _OneKeyRunObservedDownKeys := {}
     _OneKeyRunLastOtherInputKey := ""
     _OneKeyRunLastOtherInputTime := 0
-    _OneKeyRunRefreshGeneration := 0
+    _OneKeyRunRefreshGeneration += 1
 }
 
 OneKeyRunRegisterToggleHotkey(){

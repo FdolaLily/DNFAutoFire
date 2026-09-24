@@ -1,4 +1,13 @@
-#NoEnv
+﻿#NoEnv
+AutoFireNativeLease(){
+    return {handle: 0, cookie: 0}
+}
+AutoFireNativeLeaseValid(lease){
+    return true
+}
+AutoFireNativePauseKey(key, pause, lease := ""){
+    return true
+}
 #SingleInstance, Force
 
 GetOriginKeyName(key) {

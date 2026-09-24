@@ -153,6 +153,7 @@ Gui Main:Add, CheckBox, vCombo x298 y380 h20 w16
 Gui Main:Add, Link, gMainCombo x316 y383 h20, <a>一键连招</a>
 Gui Main:Add, CheckBox, vOneKeyRun x298 y400 h20 w16
 Gui Main:Add, Link, gMainOneKeyRun x316 y403 h20, <a>一键奔跑</a>
+Gui Main:Add, Button, gShowGuiAutoFireTiming x316 y444 w164 h32, 连发时序设置
 
 ShowGuiMain(){
     Gui Main:Show, w940 h510, DAF连发工具 - DNF AutoFire

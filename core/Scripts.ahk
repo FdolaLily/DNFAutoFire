@@ -11,11 +11,9 @@ ChangeKeyAutoFireState(key){
         }
         _AutoFireEnableKeys.Delete(needDeleteIndex)
         MainSetKeyState(key, false)
-        SetOriginalDirect(key)
     } else {
         _AutoFireEnableKeys.Push(key)
         MainSetKeyState(key, true)
-        SetOriginalBlocking(key)
     }
 }
 
@@ -126,6 +124,7 @@ OriginalBlocking(key){
 
 ; 屏蔽按键原始功能
 SetOriginalBlocking(key){
+    Hotkey, IfWinActive, ahk_group DNF
     keyName := GetOriginKeyName(key)
     if (!InStr(keyName, "Num")){
         keyName := Key2SC(keyName)
@@ -134,10 +133,12 @@ SetOriginalBlocking(key){
     try{
         Hotkey, $*%keyName%, %fn%, On
     }
+    Hotkey, IfWinActive
 }
 
 ; 恢复按键原始功能
 SetOriginalDirect(key){
+    Hotkey, IfWinActive, ahk_group DNF
     keyName := GetOriginKeyName(key)
     if (!InStr(keyName, "Num")){
         keyName := Key2SC(keyName)
@@ -150,6 +151,7 @@ SetOriginalDirect(key){
     try{
         Hotkey, %upHotkey%, Off
     }
+    Hotkey, IfWinActive
 }
 
 ; 设置托盘图标状态
@@ -166,11 +168,10 @@ SetTrayRunningIcon(state){
 ; 启动连发功能
 StartAutoFire(){
     global _AutoFireEnableKeys
-    global _AutoFireThreads
     ; 避免重复启动留下旧子进程、热键或逻辑按下状态。
     StopAutoFire()
-    _AutoFireThreads := []
     runKeys := OneKeyRunGetCurrentKeys()
+    keys := []
     for _, key in _AutoFireEnableKeys {
         if (ComboIsTriggerKey(key)) {
             continue
@@ -178,44 +179,28 @@ StartAutoFire(){
         if (OneKeyRunContainsKey(runKeys, key)) {
             continue
         }
-        SetOriginalBlocking(key)
-        _AutoFireThreads.Push(new Thread(key))
+        keys.Push(key)
     }
-    Sleep, 10
-    _AutoFireThreads.Push(new Thread("ReleaseKeys"))
-    OneKeyRunStartForPreset()
-    StartComboHotkeys()
-    StartEx()
+    try {
+        OneKeyRunStartForPreset()
+        StartComboHotkeys()
+        AutoFireNativeStart(AutoFireBuildRules(keys), AutoFireLoadTiming(GetNowSelectPreset()))
+    } catch error {
+        StopAutoFire()
+        MsgBox, 16, 连发启动失败, % error.Message
+        return false
+    }
     SoundPlay *64
     SetTrayRunningIcon(true)
     nowSelectPreset := GetNowSelectPreset()
     ShowTip("连发已启动 - " . nowSelectPreset)
 }
 
-StartEx(){
-    global _AutoFireThreads
-    global LvRen
-    global ZhanFa
-    global JianZong
-    if(LvRen){
-        _AutoFireThreads.Push(new Thread("ExLvRen"))
-    }
-    if(ZhanFa){
-        _AutoFireThreads.Push(new Thread("ExZhanFa"))
-    }
-    if(JianZong){
-        skillKey := LoadPreset(GetNowSelectPreset(), "JianZongSkillKey")
-        SetOriginalBlocking(skillKey)
-        _AutoFireThreads.Push(new Thread("ExJianZong"))
-    }
-}
-
 ; 停止连发功能
 StopAutoFire(){
-    global _AutoFireThreads
-    ; 先停止可能仍在发送输入的子进程，再解除热键和释放键位。
+    ; 先等待原生引擎释放自己发出的 Down，再解除其它热键。
+    AutoFireNativeStop()
     StopComboHotkeys()
-    _AutoFireThreads := []
     OneKeyRunShutdown()
     allKeys := GetAllKeys()
     for _, key in allKeys {
@@ -318,7 +303,7 @@ CloseTip(){
 }
 
 SetDNFWindowClass(){
-    GroupAdd, DNF, ahk_class 地下城与勇士
-    GroupAdd, DNF, ahk_class Dungeon & Fighter
-    GroupAdd, DNF, ahk_class Dungeon Fighter Online
+    GroupAdd, DNF, ahk_exe DNF.exe ahk_class 地下城与勇士
+    GroupAdd, DNF, ahk_exe DNF.exe ahk_class Dungeon & Fighter
+    GroupAdd, DNF, ahk_exe DNF.exe ahk_class Dungeon Fighter Online
 }

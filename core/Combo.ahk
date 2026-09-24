@@ -1,5 +1,6 @@
 ﻿global _ComboGroups := []
 global _ComboHotkeyTriggers := []
+global _ComboGeneration := 0
 
 ComboNormalizeInterval(value) {
     value := value + 0
@@ -189,12 +190,47 @@ ComboKeyToHotkey(key) {
     return keyName
 }
 
-ComboSendKey(guiKey) {
+ComboSendKey(guiKey, generation := "") {
+    global _ComboGeneration
+    if (generation == "")
+        generation := _ComboGeneration
     originKey := GetOriginKeyName(guiKey)
-    SendIP(Key2NoVkSC(originKey))
+    if (!WinActive("ahk_group DNF"))
+        return
+    leaseCritical := A_IsCritical
+    Critical, On
+    lease := AutoFireNativeLease()
+    try {
+        if (!AutoFireNativePauseKey(originKey, true, lease))
+            throw Exception("无法安全交接连招按键。")
+        if (generation != _ComboGeneration || !AutoFireNativeLeaseValid(lease) || !WinActive("ahk_group DNF"))
+            return
+        priorCritical := A_IsCritical
+        Critical, On
+        try {
+            if (generation != _ComboGeneration || !AutoFireNativeLeaseValid(lease) || !WinActive("ahk_group DNF"))
+                return
+            input := new AutoFireInput(originKey)
+            try {
+                if (!input.Send(true))
+                    throw Exception("连招按下发送失败：" . input.LastError)
+                DllCall("Sleep", "UInt", 10)
+            } finally {
+                if (!input.Send(false))
+                    throw Exception("连招抬起发送失败：" . input.LastError)
+            }
+        } finally {
+            Critical, %priorCritical%
+        }
+        DllCall("Sleep", "UInt", 10)
+    } finally {
+        AutoFireNativePauseKey(originKey, false, lease)
+        Critical, %leaseCritical%
+    }
 }
 
 ComboRun(group) {
+    global _ComboGeneration
     if (!WinActive("ahk_group DNF")) {
         return
     }
@@ -202,12 +238,15 @@ ComboRun(group) {
     trigger := ComboGetTrigger(group)
     pressKey := ComboKeyToHotkey(trigger)
     steps := ComboGetSteps(group)
+    generation := _ComboGeneration
 
     for _, step in steps {
         if (step.interval > 0) {
             Sleep, % step.interval
         }
-        ComboSendKey(step.key)
+        if (generation != _ComboGeneration || !WinActive("ahk_group DNF"))
+            return
+        ComboSendKey(step.key, generation)
     }
 
     KeyWait, %pressKey%
@@ -247,6 +286,8 @@ StartComboHotkeys() {
 
 StopComboHotkeys() {
     global _ComboHotkeyTriggers
+    global _ComboGeneration
+    _ComboGeneration++
     Hotkey, IfWinActive, ahk_group DNF
     for _, trigger in _ComboHotkeyTriggers {
         hotkeyName := ComboKeyToHotkey(trigger)

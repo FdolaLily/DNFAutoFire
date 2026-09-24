@@ -1,3 +1,17 @@
+﻿; Normalize once while loading the preset; the hot path uses this snapshot.
+AutoFireNormalizePulseMs(value, defaultValue := 10){
+    if value is not integer
+        return defaultValue
+    return value < 1 ? 1 : (value > 100 ? 100 : value + 0)
+}
+
+AutoFireLoadTiming(presetName){
+    downMs := AutoFireNormalizePulseMs(LoadPreset(presetName, "AutoFireDownMs", 10))
+    upMs := AutoFireNormalizePulseMs(LoadPreset(presetName, "AutoFireUpMs", 10))
+    cycleMs := downMs + upMs
+    return {downMs: downMs, upMs: upMs, cycleMs: cycleMs, frequencyHz: 1000.0 / cycleMs}
+}
+
 AutoFireGetStartDelay(key, pressedKeys){
     if (!IsObject(pressedKeys)) {
         return 0

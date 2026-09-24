@@ -1,8 +1,15 @@
-#NoEnv
+﻿#NoEnv
 #SingleInstance, Force
 SetBatchLines, -1
 
 #Include %A_ScriptDir%\..\core\AutoFireMode.ahk
+
+global testTimingValues := {}
+
+LoadPreset(presetName, key, defaultValue := "") {
+    global testTimingValues
+    return testTimingValues.HasKey(key) ? testTimingValues[key] : defaultValue
+}
 
 AssertEqual(actual, expected, message) {
     if (actual != expected) {
@@ -10,6 +17,28 @@ AssertEqual(actual, expected, message) {
         ExitApp, 1
     }
 }
+
+AssertEqual(AutoFireNormalizePulseMs(""), 10, "empty pulse duration must use the default")
+AssertEqual(AutoFireNormalizePulseMs("invalid"), 10, "invalid pulse duration must use the default")
+AssertEqual(AutoFireNormalizePulseMs("1.5"), 10, "fractional pulse duration must use the default")
+AssertEqual(AutoFireNormalizePulseMs(0), 1, "pulse duration must never produce a zero-width state")
+AssertEqual(AutoFireNormalizePulseMs(-1), 1, "negative pulse duration must clamp to one millisecond")
+AssertEqual(AutoFireNormalizePulseMs(101), 100, "pulse duration must have a bounded upper limit")
+AssertEqual(AutoFireNormalizePulseMs(1), 1, "experimental minimum must remain configurable")
+AssertEqual(AutoFireNormalizePulseMs(100), 100, "maximum pulse duration must remain configurable")
+timing := AutoFireLoadTiming("test")
+AssertEqual(timing.downMs, 10, "old presets must keep the 10ms down duration")
+AssertEqual(timing.upMs, 10, "old presets must keep the 10ms up duration")
+AssertEqual(timing.cycleMs, 20, "default cycle duration must remain 20ms")
+AssertEqual(timing.frequencyHz, 50, "default theoretical output must remain 50Hz")
+testTimingValues := {AutoFireDownMs: 1, AutoFireUpMs: 1}
+timing := AutoFireLoadTiming("test")
+AssertEqual(timing.cycleMs, 2, "experimental minimum cycle must preserve both key states")
+AssertEqual(timing.frequencyHz, 500, "minimum durations must request a theoretical 500Hz")
+testTimingValues := {AutoFireDownMs: "bad", AutoFireUpMs: 200}
+timing := AutoFireLoadTiming("test")
+AssertEqual(timing.downMs, 10, "corrupt preset duration must fall back independently")
+AssertEqual(timing.upMs, 100, "out-of-range preset duration must clamp independently")
 
 twoKeys := ["F7", "Numpad3"]
 AssertEqual(AutoFireGetStartDelay("F7", twoKeys), 0, "first arbitrary key must keep phase 0")

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "blockedArtifacts": [
+    {
+      "sha256": "B7A493CA497C0896F188613627692B3C7C1FBBA9BBE690E31C983F741C07DC51",
+      "version": "0.1.4.1",
+      "status": "pending-vendor-review",
+      "vendor": "Huorong 6.0.12.1",
+      "detection": "HEUR:TrojanSpy/GameSpy.d",
+      "detectedAt": "2026-09-24T21:13:51+08:00",
+      "evidence": "docs/security/HUORONG-20260924.md"
+    }
+  ]
+}

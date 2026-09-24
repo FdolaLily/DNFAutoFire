@@ -1,13 +1,11 @@
-﻿full_command_line := DllCall("GetCommandLine", "str")
-
-if not (A_IsAdmin or RegExMatch(full_command_line, " /restart(?!\S)"))
+﻿if (!A_IsAdmin)
 {
     try
     {
         if A_IsCompiled
-            Run *RunAs "%A_ScriptFullPath%" /restart
+            Run *RunAs "%A_ScriptFullPath%"
         else
-            Run *RunAs "%A_AhkPath%" /restart "%A_ScriptFullPath%"
+            Run *RunAs "%A_AhkPath%" "%A_ScriptFullPath%"
     }
     ExitApp
 }
