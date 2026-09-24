@@ -1,0 +1,194 @@
+{
+  "capturedAt": "2026-09-24T22:16:17.131272+08:00",
+  "sourceDirectory": "C:\\ProgramData\\Huorong\\Sysdiag",
+  "sinceEventId": 3602,
+  "limitation": "Read-only log/trust evidence only. No scan was requested; absence of new detections does not mean a scan passed.",
+  "artifacts": [
+    {
+      "path": "E:\\autokill\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\dist\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\AutoManagerProcess\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\Compiler\\Ahk2Exe.exe",
+      "exists": true,
+      "md5": "78515b1091f74c0f828aed92d3c972b0",
+      "sha1": "0103e030518db102631310ce4e2eb7673d7a1994",
+      "sha256": "754a28ed76a7b4eba7909b146cfc4c4c2aa43aff54e10a5cd6dbc939c0732b6a"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\AutoHotkeyU64.exe",
+      "exists": true,
+      "md5": "2d0600fe2b1b3bdc45d833ca32a37fdb",
+      "sha1": "e9a7411bfef54050de3b485833556f84cabd6e41",
+      "sha256": "effdea83c6b7a1dc2ce9e9d40e91dfd59bed9fcbd580903423648b7ca97d9696"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    }
+  ],
+  "relatedTrustAndExceptionRows": {
+    "wlfile.db": {
+      "TrustRegion_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListPath_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListHash_60": {
+        "available": true,
+        "rows": []
+      }
+    },
+    "user.db": {
+      "HipsKModException_60": {
+        "available": true,
+        "rows": []
+      },
+      "ProcGrant_60": {
+        "available": true,
+        "rows": []
+      },
+      "RiskSoftware_60": {
+        "available": true,
+        "rows": []
+      },
+      "AppRunCtrl_60": {
+        "available": true,
+        "rows": []
+      }
+    }
+  },
+  "latestEventId": 3604,
+  "projectEvents": [
+    {
+      "id": 3603,
+      "fid": 1,
+      "fname": "filemon",
+      "ts": 1790259355,
+      "detail": {
+        "guid": 3871802809298521921,
+        "fid": 1,
+        "detail": {
+          "task": 2776020471984,
+          "cmdline": "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\workspace\\DNFAutoFire\\scripts\\publish.ps1 -Source D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe -ExpectedHash 3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314 -Version 0.1.5.0",
+          "p_xpid": 26096,
+          "proc_atrstr": ":-E6--DR-0-O-----:-E6---R-0-------:",
+          "token": 2,
+          "recname": "HEUR:TrojanSpy/GameSpy.d",
+          "rid": "74F6F9238E0E4399",
+          "p_procname": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+          "pathname": "D:\\workspace\\DNFAutoFire\\build\\autokill-before-0.1.5.0.exe",
+          "procname": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "sha1": "EF8C84B6B78CEBD2BE47D835EEADC0D80987CE1C",
+          "xpid": 30828,
+          "p_cmdline": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n$arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File','D:\\workspace\\DNFAutoFire\\scripts\\publish.ps1','-Source','D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe','-ExpectedHash','3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314','-Version','0.1.5.0'); $publisher = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList $arguments -PassThru; $null = $publisher.Handle; if ($publisher.WaitForExit(45000)) { Write-Output ('Publisher exit: ' + $publisher.ExitCode) } else { Write-Output ('Publisher still running: ' + $publisher.Id) }; if (Test-Path -LiteralPath .\\build\\publish-0.1.5.0-result.json) { Get-Content -LiteralPath .\\build\\publish-0.1.5.0-result.json }\" ",
+          "md5": "a89321bbb33fd12232f3efd7bbe9cc7d",
+          "proc_sha1": "a4f874f663d4b2e682bbae87fd121865a42dddbb",
+          "solid": 1,
+          "sha256": "b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51",
+          "scan_mask": 32,
+          "hashsig": "0x0e19f86b,0xae6e84236a5a81ee",
+          "treatment": 2,
+          "result": 3,
+          "mcs": 100
+        },
+        "version": {
+          "product": "6.0.12.1",
+          "dbtime": 1790246289
+        }
+      },
+      "guid": 3871802809298521921,
+      "time": "2026-09-24T22:15:55+08:00"
+    },
+    {
+      "id": 3604,
+      "fid": 1,
+      "fname": "filemon",
+      "ts": 1790259355,
+      "detail": {
+        "guid": 3822490294698299596,
+        "fid": 1,
+        "detail": {
+          "task": 2776020471984,
+          "cmdline": "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File D:\\workspace\\DNFAutoFire\\scripts\\publish.ps1 -Source D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe -ExpectedHash 3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314 -Version 0.1.5.0",
+          "p_xpid": 26096,
+          "proc_atrstr": ":-E6--DR-0-O-----:-E6---R-0-------:",
+          "token": 3,
+          "recname": "HEUR:TrojanSpy/GameSpy.d",
+          "rid": "74F6F9238E0E4399",
+          "p_procname": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+          "pathname": "D:\\workspace\\DNFAutoFire\\build\\manager-before-0.1.5.0.exe",
+          "procname": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          "sha1": "EF8C84B6B78CEBD2BE47D835EEADC0D80987CE1C",
+          "xpid": 30828,
+          "p_cmdline": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n$arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File','D:\\workspace\\DNFAutoFire\\scripts\\publish.ps1','-Source','D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe','-ExpectedHash','3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314','-Version','0.1.5.0'); $publisher = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -ArgumentList $arguments -PassThru; $null = $publisher.Handle; if ($publisher.WaitForExit(45000)) { Write-Output ('Publisher exit: ' + $publisher.ExitCode) } else { Write-Output ('Publisher still running: ' + $publisher.Id) }; if (Test-Path -LiteralPath .\\build\\publish-0.1.5.0-result.json) { Get-Content -LiteralPath .\\build\\publish-0.1.5.0-result.json }\" ",
+          "md5": "a89321bbb33fd12232f3efd7bbe9cc7d",
+          "proc_sha1": "a4f874f663d4b2e682bbae87fd121865a42dddbb",
+          "solid": 1,
+          "sha256": "b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51",
+          "scan_mask": 32,
+          "hashsig": "0x0e19f86b,0xae6e84236a5a81ee",
+          "treatment": 2,
+          "result": 3,
+          "mcs": 100
+        },
+        "version": {
+          "product": "6.0.12.1",
+          "dbtime": 1790246289
+        }
+      },
+      "guid": 3822490294698299596,
+      "time": "2026-09-24T22:15:55+08:00"
+    }
+  ],
+  "logCategoryCounts": [
+    {
+      "fid": 1,
+      "fname": "filemon",
+      "count": 6
+    },
+    {
+      "fid": 18,
+      "fname": "update",
+      "count": 8
+    },
+    {
+      "fid": 25,
+      "fname": "appnetctrl",
+      "count": 36
+    },
+    {
+      "fid": 63,
+      "fname": "quaran",
+      "count": 2
+    },
+    {
+      "fid": 64,
+      "fname": "microphone",
+      "count": 23
+    }
+  ]
+}

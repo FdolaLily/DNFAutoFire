@@ -1,0 +1,31 @@
+﻿{
+    "Success":  true,
+    "Version":  "0.1.5.0",
+    "SelfTestExitCode":  0,
+    "ConfigUnchanged":  true,
+    "Stopped":  [
+
+                ],
+    "Restarted":  [
+
+                  ],
+    "Copies":  [
+                   {
+                       "SHA256":  "3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314",
+                       "Path":  "E:\\autokill\\DNFAutoFire.exe"
+                   },
+                   {
+                       "SHA256":  "3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314",
+                       "Path":  "D:\\workspace\\DNFAutoFire\\dist\\DNFAutoFire.exe"
+                   },
+                   {
+                       "SHA256":  "3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314",
+                       "Path":  "D:\\workspace\\AutoManagerProcess\\DNFAutoFire.exe"
+                   }
+               ],
+    "SingletonChecks":  [
+
+                        ],
+    "Commit":  "a34ed3b30a03038677dd6158ad443c28591d4c2d",
+    "Error":  ""
+}

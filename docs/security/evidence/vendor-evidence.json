@@ -1,0 +1,40 @@
+[
+  {
+    "time": "2026-09-24T20:12:10+08:00",
+    "event": "detection",
+    "stage": "compilation-temporary-image",
+    "fileName": "RCX817C.tmp",
+    "sha256": "A125AE4133A8300FFB18F5B8B12103D1B23ECF590E9054A40F45CDFF958CBB95",
+    "detection": "HEUR:TrojanSpy/GameSpy.d",
+    "ruleId": "74F6F9238E0E4399",
+    "productVersion": "6.0.12.1",
+    "databaseTime": "2026-09-23T19:08:16+08:00"
+  },
+  {
+    "time": "2026-09-24T20:13:27+08:00",
+    "event": "detection",
+    "stage": "compilation-temporary-image",
+    "fileName": "RCXB142.tmp",
+    "sha256": "9896C3FA2E73E38253E629E5183E3D9E45DFCF0807ED4BFC887CA6CA944328F0",
+    "detection": "HEUR:TrojanSpy/GameSpy.d",
+    "ruleId": "74F6F9238E0E4399",
+    "productVersion": "6.0.12.1",
+    "databaseTime": "2026-09-23T19:08:16+08:00"
+  },
+  {
+    "time": "2026-09-24T21:13:51+08:00",
+    "event": "detection",
+    "stage": "released-client",
+    "fileName": "DNFAutoFire.exe",
+    "sha256": "B7A493CA497C0896F188613627692B3C7C1FBBA9BBE690E31C983F741C07DC51",
+    "detection": "HEUR:TrojanSpy/GameSpy.d",
+    "ruleId": "74F6F9238E0E4399",
+    "productVersion": "6.0.12.1",
+    "databaseTime": "2026-09-23T19:08:16+08:00"
+  },
+  {
+    "time": "2026-09-24T21:14:46+08:00",
+    "event": "quarantine-restore",
+    "fileName": "DNFAutoFire.exe"
+  }
+]

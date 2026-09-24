@@ -1,0 +1,34 @@
+[
+  {
+    "id": 3599,
+    "fid": 63,
+    "fname": "quaran",
+    "ts": 1790255686,
+    "detail": "{\"guid\":5197532372730127761,\"fid\":63,\"detail\":{\"type\":\"QUARAN_restore\",\"success\":[\"E:\\\\autokill\\\\DNFAutoFire.exe\"],\"fail\":[]}}",
+    "guid": 5197532372730127761
+  },
+  {
+    "id": 3598,
+    "fid": 1,
+    "fname": "filemon",
+    "ts": 1790255631,
+    "detail": "{\"guid\":8088108001091655074,\"fid\":1,\"detail\":{\"task\":2486640873152,\"cmdline\":\"\",\"p_xpid\":0,\"proc_atrstr\":\"\",\"token\":1,\"recname\":\"HEUR:TrojanSpy/GameSpy.d\",\"rid\":\"74F6F9238E0E4399\",\"p_procname\":\"Idle\",\"pathname\":\"E:\\\\autokill\\\\DNFAutoFire.exe\",\"procname\":\"System\",\"sha1\":\"EF8C84B6B78CEBD2BE47D835EEADC0D80987CE1C\",\"xpid\":4,\"p_cmdline\":\"\",\"md5\":\"a89321bbb33fd12232f3efd7bbe9cc7d\",\"proc_sha1\":\"0000000000000000000000000000000000000000\",\"solid\":1,\"sha256\":\"b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51\",\"scan_mask\":512,\"hashsig\":\"0x0e19f86b,0xae6e84236a5a81ee\",\"treatment\":2,\"result\":3,\"mcs\":100},\"version\":{\"product\":\"6.0.12.1\",\"dbtime\":1790161696}}",
+    "guid": 8088108001091655074
+  },
+  {
+    "id": 3597,
+    "fid": 1,
+    "fname": "filemon",
+    "ts": 1790252007,
+    "detail": "{\"guid\":3179078371170243485,\"fid\":1,\"detail\":{\"task\":2486705834096,\"cmdline\":\"\\\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\Compiler\\\\Ahk2Exe.exe\\\" /silent verbose /in \\\"D:\\\\workspace\\\\DNFAutoFire\\\\DAF连发工具.ahk\\\" /out \\\"D:\\\\workspace\\\\DNFAutoFire\\\\dist\\\\DNFAutoFire.exe\\\" /base \\\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\AutoHotkeyU64.exe\\\" /compress 0 /cp 65001\",\"p_xpid\":31192,\"proc_atrstr\":\":-E6--DR-0-O-----:-E3---R-0-------:\",\"token\":2,\"recname\":\"HEUR:TrojanSpy/GameSpy.d\",\"rid\":\"74F6F9238E0E4399\",\"p_procname\":\"C:\\\\Users\\\\htzmi\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\",\"pathname\":\"C:\\\\Users\\\\htzmi\\\\AppData\\\\Local\\\\Temp\\\\RCXB142.tmp\",\"procname\":\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\Compiler\\\\Ahk2Exe.exe\",\"sha1\":\"39988E3A8382404A02DD06573D44B4EE274E3D48\",\"xpid\":30848,\"p_cmdline\":\"C:\\\\Users\\\\htzmi\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe -NoProfile -Command \\\"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\\n& .\\\\scripts\\\\build.ps1 -SkipTests\\\" \",\"md5\":\"60fa45afe1aeb983d61276907c72a883\",\"proc_sha1\":\"0103e030518db102631310ce4e2eb7673d7a1994\",\"solid\":1,\"sha256\":\"9896c3fa2e73e38253e629e5183e3d9e45dfcf0807ed4bfc887ca6ca944328f0\",\"scan_mask\":32,\"hashsig\":\"0x5b300b0a,0xdec1929ed91c414e\",\"treatment\":2,\"result\":3,\"mcs\":100},\"version\":{\"product\":\"6.0.12.1\",\"dbtime\":1790161696}}",
+    "guid": 3179078371170243485
+  },
+  {
+    "id": 3595,
+    "fid": 1,
+    "fname": "filemon",
+    "ts": 1790251930,
+    "detail": "{\"guid\":773597500516276366,\"fid\":1,\"detail\":{\"task\":2486705834096,\"cmdline\":\"\\\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\Compiler\\\\Ahk2Exe.exe\\\" /in \\\"D:\\\\workspace\\\\DNFAutoFire\\\\DAF连发工具.ahk\\\" /out \\\"D:\\\\workspace\\\\DNFAutoFire\\\\dist\\\\DNFAutoFire.exe\\\" /bin \\\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\Compiler\\\\Unicode 64-bit.bin\\\" /compress 0\",\"p_xpid\":26640,\"proc_atrstr\":\":-E6--DR-0-O-----:-E3---R-0-------:\",\"token\":1,\"recname\":\"HEUR:TrojanSpy/GameSpy.d\",\"rid\":\"74F6F9238E0E4399\",\"p_procname\":\"C:\\\\Users\\\\htzmi\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\",\"pathname\":\"C:\\\\Users\\\\htzmi\\\\AppData\\\\Local\\\\Temp\\\\RCX817C.tmp\",\"procname\":\"D:\\\\workspace\\\\DNFAutoFire\\\\venv\\\\tools\\\\autohotkey-v1.1.37.02\\\\Compiler\\\\Ahk2Exe.exe\",\"sha1\":\"CC2C3B61C8C577BC0D613CA2AAA004C42808640A\",\"xpid\":30120,\"p_cmdline\":\"C:\\\\Users\\\\htzmi\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe -NoProfile -Command \\\"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\\n& .\\\\scripts\\\\build.ps1\\\" \",\"md5\":\"629024d66807aa8845cf183e979c4220\",\"proc_sha1\":\"0103e030518db102631310ce4e2eb7673d7a1994\",\"solid\":1,\"sha256\":\"a125ae4133a8300ffb18f5b8b12103d1b23ecf590e9054a40f45cdff958cbb95\",\"scan_mask\":32,\"hashsig\":\"0xefb41d54,0x8b2a6483e5ff1aca\",\"treatment\":2,\"result\":3,\"mcs\":100},\"version\":{\"product\":\"6.0.12.1\",\"dbtime\":1790161696}}",
+    "guid": 773597500516276366
+  }
+]

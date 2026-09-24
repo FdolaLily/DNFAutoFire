@@ -1,0 +1,2 @@
+backend,keys,hold_ms,spin_us,high_resolution,elapsed_s,hz_per_key,lateness_p50_ms,lateness_p95_ms,lateness_p99_ms,lateness_max_ms,interval_p50_ms,interval_p95_ms,interval_p99_ms,interval_max_ms,cpu_one_core_percent,skipped_cycles,down_events
+native,3,10,100,1,2.000114,49.998,0.170,0.406,0.659,0.801,20.000,20.331,20.523,20.723,0.781,0,301

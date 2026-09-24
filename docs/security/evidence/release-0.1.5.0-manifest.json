@@ -1,0 +1,77 @@
+{
+  "Version": "0.1.5.0",
+  "File": "D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.0\\DNFAutoFire.exe",
+  "Length": 1648640,
+  "SHA256": "3B56D8F6425B1CC0090095737E3F6ADFF8E334F09BDF0793D96558427CC7E314",
+  "Signature": "NotSigned",
+  "Compiler": "Zig 0.15.2 x86_64-windows-gnu",
+  "CompilerSHA256": "D408DD38EED3E5204AF841BCEBF70502A4DBBB8399A3A3262BE55059370BC018",
+  "Sources": [
+    {
+      "SHA256": "328B770C59C8F10503F6A03D52602257D08404EE5D8980493C590D83BF392C53",
+      "Path": "client_config.cpp"
+    },
+    {
+      "SHA256": "66472843CC8439E7D28510B60EFB465C40893649676BB389A8AE318E8C17BDEA",
+      "Path": "client_config.h"
+    },
+    {
+      "SHA256": "B1B83D72C1A486B04B4DBE53EA45C0652BB1912736D32401E6B4C1F5BA8DB839",
+      "Path": "client_input_model.h"
+    },
+    {
+      "SHA256": "C73FFD574A7DC1C697E50AA303CB9FE52C273ADE2C9AFAE769CFA737E673BCD1",
+      "Path": "client_input_state.h"
+    },
+    {
+      "SHA256": "4D7E2A8DD767184D2A1BD8D60E130D804251F65A9E2D832E99237725021488B2",
+      "Path": "client_input.cpp"
+    },
+    {
+      "SHA256": "94D65E8854B0BDDF80213BCCD1D30330671053F9C5F406D1E433095156BA5C8E",
+      "Path": "client_input.h"
+    },
+    {
+      "SHA256": "F19298F009901F8E2FFABEEC3481ECD1FC360FD38222DF335D7A88835B2F874F",
+      "Path": "client_main.cpp"
+    },
+    {
+      "SHA256": "839727A320180FFD335E9D0123D5D89A7D720AAC2E2E93E88A0145BE4DC5E93B",
+      "Path": "client_ui.cpp"
+    },
+    {
+      "SHA256": "A81B64C175A8F49733943EF49775084B8EB54B37065C00B13072BDCDCBF908EB",
+      "Path": "client_ui.h"
+    },
+    {
+      "SHA256": "65CC3DE4CB0B7EF2116CE566F5FEA7F57D0732257E38602C090B576D95B4F4F3",
+      "Path": "client.manifest"
+    },
+    {
+      "SHA256": "9FEC2B9922BE5A94642B849E70C360198C5C9D900C6D938EBE64B49786A5DE77",
+      "Path": "client.rc"
+    },
+    {
+      "SHA256": "56A0E706BED202F3B177C82346CB8F0ADAFF50ED991866EC23B5C6359F2D9712",
+      "Path": "engine_api.h"
+    },
+    {
+      "SHA256": "30188E47807D81B9A98948E5A74F6C2C33AB2E269F431DE19A63701F19B3B886",
+      "Path": "engine.cpp"
+    },
+    {
+      "SHA256": "EC55955D9A2F391A4ED63E067C552C406C37822397D40D233542C0119CF546E3",
+      "Path": "schedule.h"
+    },
+    {
+      "SHA256": "10A7CFA8CECE8B12E79180BD036FD3798A9C8B3DEF312835ADE4AE969A54D1CB",
+      "Path": "win_timer.h"
+    }
+  ],
+  "BuildLog": "build/native-client-final-build.log",
+  "HuorongEvidence": "build/security-review-20260924/huorong-after-publish.json",
+  "ActiveScan": "Awaiting user report",
+  "CreatedAt": "2026-09-24T22:15:20.3531529+08:00",
+  "DeploymentReport": "build/publish-0.1.5.0-result.json",
+  "ManagerCommit": "a34ed3b30a03038677dd6158ad443c28591d4c2d"
+}

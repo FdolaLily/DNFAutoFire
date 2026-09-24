@@ -1,0 +1,147 @@
+{
+  "capturedAt": "2026-09-24T21:50:16.265350+08:00",
+  "sourceDirectory": "C:\\ProgramData\\Huorong\\Sysdiag",
+  "sinceEventId": 3600,
+  "limitation": "Read-only log/trust evidence only. No scan was requested; absence of new detections does not mean a scan passed.",
+  "artifacts": [
+    {
+      "path": "E:\\autokill\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "a89321bbb33fd12232f3efd7bbe9cc7d",
+      "sha1": "ef8c84b6b78cebd2be47d835eeadc0d80987ce1c",
+      "sha256": "b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\dist\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "a89321bbb33fd12232f3efd7bbe9cc7d",
+      "sha1": "ef8c84b6b78cebd2be47d835eeadc0d80987ce1c",
+      "sha256": "b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51"
+    },
+    {
+      "path": "D:\\workspace\\AutoManagerProcess\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "a89321bbb33fd12232f3efd7bbe9cc7d",
+      "sha1": "ef8c84b6b78cebd2be47d835eeadc0d80987ce1c",
+      "sha256": "b7a493ca497c0896f188613627692b3c7c1fbba9bbe690e31c983f741c07dc51"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\Compiler\\Ahk2Exe.exe",
+      "exists": true,
+      "md5": "78515b1091f74c0f828aed92d3c972b0",
+      "sha1": "0103e030518db102631310ce4e2eb7673d7a1994",
+      "sha256": "754a28ed76a7b4eba7909b146cfc4c4c2aa43aff54e10a5cd6dbc939c0732b6a"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\AutoHotkeyU64.exe",
+      "exists": true,
+      "md5": "2d0600fe2b1b3bdc45d833ca32a37fdb",
+      "sha1": "e9a7411bfef54050de3b485833556f84cabd6e41",
+      "sha256": "effdea83c6b7a1dc2ce9e9d40e91dfd59bed9fcbd580903423648b7ca97d9696"
+    }
+  ],
+  "relatedTrustAndExceptionRows": {
+    "wlfile.db": {
+      "TrustRegion_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListPath_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListHash_60": {
+        "available": true,
+        "rows": []
+      }
+    },
+    "user.db": {
+      "HipsKModException_60": {
+        "available": true,
+        "rows": []
+      },
+      "ProcGrant_60": {
+        "available": true,
+        "rows": []
+      },
+      "RiskSoftware_60": {
+        "available": true,
+        "rows": []
+      },
+      "AppRunCtrl_60": {
+        "available": true,
+        "rows": []
+      }
+    }
+  },
+  "latestEventId": 3602,
+  "projectEvents": [
+    {
+      "id": 3602,
+      "fid": 1,
+      "fname": "filemon",
+      "ts": 1790257792,
+      "detail": {
+        "guid": -3998249707426410217,
+        "fid": 1,
+        "detail": {
+          "task": 2776020471984,
+          "cmdline": "\"D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\Compiler\\Ahk2Exe.exe\" /silent verbose /in \"D:\\workspace\\DNFAutoFire\\DAF连发工具.ahk\" /out \"D:\\workspace\\DNFAutoFire\\build\\release-0.1.4.2\\DNFAutoFire.exe\" /base \"D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\AutoHotkeyU64.exe\" /compress 0 /cp 65001",
+          "p_xpid": 31108,
+          "proc_atrstr": ":-E6--DR-0-O-----:-E3---R-0-------:",
+          "token": 1,
+          "recname": "HEUR:TrojanSpy/GameSpy.d",
+          "rid": "74F6F9238E0E4399",
+          "p_procname": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe",
+          "pathname": "C:\\Users\\htzmi\\AppData\\Local\\Temp\\RCXF63E.tmp",
+          "procname": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\Compiler\\Ahk2Exe.exe",
+          "sha1": "0BC72E027AD829014C2E8CABC7BE44A5C1F389C0",
+          "xpid": 27508,
+          "p_cmdline": "C:\\Users\\htzmi\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\powershell\\pwsh.exe -Command \"try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\tests\\single_instance_test.ps1\nif ($LASTEXITCODE) { throw 'Singleton regression failed' }\n& .\\scripts\\build.ps1 -SkipTests -OutputFile 'D:\\workspace\\DNFAutoFire\\build\\release-0.1.4.2\\DNFAutoFire.exe'\" ",
+          "md5": "11010f89454acf3d4b5e43b177e605b6",
+          "proc_sha1": "0103e030518db102631310ce4e2eb7673d7a1994",
+          "solid": 1,
+          "sha256": "08a6a41280deaebf862351f7c4307dd7af82f19717f90d601e35ce0808c0a063",
+          "scan_mask": 32,
+          "hashsig": "0x2abc92e6,0xc353b0c1f7e02b00",
+          "treatment": 2,
+          "result": 3,
+          "mcs": 100
+        },
+        "version": {
+          "product": "6.0.12.1",
+          "dbtime": 1790246289
+        }
+      },
+      "guid": -3998249707426410217,
+      "time": "2026-09-24T21:49:52+08:00"
+    }
+  ],
+  "logCategoryCounts": [
+    {
+      "fid": 1,
+      "fname": "filemon",
+      "count": 4
+    },
+    {
+      "fid": 18,
+      "fname": "update",
+      "count": 8
+    },
+    {
+      "fid": 25,
+      "fname": "appnetctrl",
+      "count": 36
+    },
+    {
+      "fid": 63,
+      "fname": "quaran",
+      "count": 2
+    },
+    {
+      "fid": 64,
+      "fname": "microphone",
+      "count": 23
+    }
+  ]
+}

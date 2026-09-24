@@ -1,0 +1,118 @@
+{
+  "capturedAt": "2026-09-24T22:27:36.681268+08:00",
+  "sourceDirectory": "C:\\ProgramData\\Huorong\\Sysdiag",
+  "sinceEventId": 3604,
+  "limitation": "Read-only log/trust evidence only. No scan was requested; absence of new detections does not mean a scan passed.",
+  "artifacts": [
+    {
+      "path": "E:\\autokill\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\dist\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\AutoManagerProcess\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "31729f63fff7ee7438a97b84797d4ad4",
+      "sha1": "23df22e941aaa4eaad415ba6df2c157bd07f30a9",
+      "sha256": "3b56d8f6425b1cc0090095737e3f6adff8e334f09bdf0793d96558427cc7e314"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\Compiler\\Ahk2Exe.exe",
+      "exists": true,
+      "md5": "78515b1091f74c0f828aed92d3c972b0",
+      "sha1": "0103e030518db102631310ce4e2eb7673d7a1994",
+      "sha256": "754a28ed76a7b4eba7909b146cfc4c4c2aa43aff54e10a5cd6dbc939c0732b6a"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\venv\\tools\\autohotkey-v1.1.37.02\\AutoHotkeyU64.exe",
+      "exists": true,
+      "md5": "2d0600fe2b1b3bdc45d833ca32a37fdb",
+      "sha1": "e9a7411bfef54050de3b485833556f84cabd6e41",
+      "sha256": "effdea83c6b7a1dc2ce9e9d40e91dfd59bed9fcbd580903423648b7ca97d9696"
+    },
+    {
+      "path": "D:\\workspace\\DNFAutoFire\\build\\release-0.1.5.1\\DNFAutoFire.exe",
+      "exists": true,
+      "md5": "b9a196b3128f5615cbebb23ba66cc3f0",
+      "sha1": "899bb6548f1e04a962272d910cc5164f9bb76aac",
+      "sha256": "f8dc9224734b22f124053550b934af2bd210162deb76d541f8e8876b1ee529ef"
+    }
+  ],
+  "relatedTrustAndExceptionRows": {
+    "wlfile.db": {
+      "TrustRegion_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListPath_60": {
+        "available": true,
+        "rows": []
+      },
+      "WhiteListHash_60": {
+        "available": true,
+        "rows": []
+      }
+    },
+    "user.db": {
+      "HipsKModException_60": {
+        "available": true,
+        "rows": []
+      },
+      "ProcGrant_60": {
+        "available": true,
+        "rows": []
+      },
+      "RiskSoftware_60": {
+        "available": true,
+        "rows": []
+      },
+      "AppRunCtrl_60": {
+        "available": true,
+        "rows": []
+      }
+    }
+  },
+  "latestEventId": 3605,
+  "projectEvents": [],
+  "logCategoryCounts": [
+    {
+      "fid": 0,
+      "fname": "scan",
+      "count": 1
+    },
+    {
+      "fid": 1,
+      "fname": "filemon",
+      "count": 6
+    },
+    {
+      "fid": 18,
+      "fname": "update",
+      "count": 8
+    },
+    {
+      "fid": 25,
+      "fname": "appnetctrl",
+      "count": 36
+    },
+    {
+      "fid": 63,
+      "fname": "quaran",
+      "count": 2
+    },
+    {
+      "fid": 64,
+      "fname": "microphone",
+      "count": 23
+    }
+  ]
+}
