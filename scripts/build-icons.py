@@ -5,8 +5,8 @@ marks auto-fire, with the square-wave timing pulse as its legend. Colours are
 the dark-theme tokens in native/client_gfx.cpp (capTop, capSide, line2, led...).
 
   app.ico      window / EXE icon (resource 1)
-  running.ico  tray, auto-fire running: LED lit (resource 2)
-  stopped.ico  tray, auto-fire stopped: LED off (resource 3)
+  running.ico  tray, auto-fire running: green LED (resource 2)
+  stopped.ico  tray, auto-fire stopped: red LED (resource 3)
 
 Small sizes are drawn from simplified geometry instead of being downscaled, so
 the LED stays readable in a 16px tray slot.
@@ -24,8 +24,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / 'native' / 'icons'
 SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256]
 
-LED = '#3BE38B'
-LED_OFF = '#6E7781'
+LED = '#3BE38B'      # dark theme `led`: running
+LED_BAD = '#FF5D5D'  # dark theme `ledBad`: stopped (same red as the UI's stopped lamps)
 
 
 def svg(size, led_on=True, legend=True):
@@ -46,13 +46,11 @@ def svg(size, led_on=True, legend=True):
         cx, cy, r = 184, 72, 24
     else:
         cx, cy, r = 184, 70, 15
-    if led_on:
-        led = (f'<circle cx="{cx}" cy="{cy}" r="{r * 3.4:.0f}" fill="url(#glow)"/>'
-               f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{LED}"/>'
-               f'<circle cx="{cx - r * .3:.1f}" cy="{cy - r * .3:.1f}" r="{r * .38:.1f}" fill="#FFFFFF" fill-opacity=".55"/>')
-    else:
-        led = (f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{LED_OFF}"/>'
-               f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#0B0D10" stroke-opacity=".5" stroke-width="3"/>')
+    # Lit either way: green while running, red while stopped.
+    color = LED if led_on else LED_BAD
+    led = (f'<circle cx="{cx}" cy="{cy}" r="{r * 3.4:.0f}" fill="url(#glow)"/>'
+           f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}"/>'
+           f'<circle cx="{cx - r * .3:.1f}" cy="{cy - r * .3:.1f}" r="{r * .38:.1f}" fill="#FFFFFF" fill-opacity=".55"/>')
     # Legend: the "连发时序" square wave (Down / Up / Down).
     wave = ''
     if legend and not tiny:
@@ -61,11 +59,12 @@ def svg(size, led_on=True, legend=True):
         else:
             d, w = 'M62 166 H82 V114 H116 V166 H142 V114 H176 V166 H196', 13
         wave = f'<path d="{d}" fill="none" stroke="#DDE2E7" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round"/>'
+    glow = LED if led_on else LED_BAD
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 256 256">
 <defs>
  <linearGradient id="side" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1F242A"/><stop offset="1" stop-color="#0F1215"/></linearGradient>
  <linearGradient id="top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#363C45"/><stop offset="1" stop-color="#262B32"/></linearGradient>
- <radialGradient id="glow"><stop offset="0" stop-color="{LED}" stop-opacity=".75"/><stop offset=".45" stop-color="{LED}" stop-opacity=".22"/><stop offset="1" stop-color="{LED}" stop-opacity="0"/></radialGradient>
+ <radialGradient id="glow"><stop offset="0" stop-color="{glow}" stop-opacity=".75"/><stop offset=".45" stop-color="{glow}" stop-opacity=".22"/><stop offset="1" stop-color="{glow}" stop-opacity="0"/></radialGradient>
 </defs>
 {skirt}{face}{wave}{led}
 </svg>'''

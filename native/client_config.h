@@ -32,6 +32,9 @@ bool isNumpadKey(const std::wstring& name);
 struct Hotkey { Key key; unsigned modifiers = 0; explicit operator bool() const { return bool(key); } };
 Hotkey parseHotkey(const std::wstring& text); // Win32 MOD_ALT/CONTROL/SHIFT/WIN flags.
 std::wstring formatHotkey(const Hotkey& key);
+// True when one key press could fire both hotkeys. `anyModifiers` marks a hotkey that also
+// fires with extra modifiers held (the one-key-run toggle); the others need exact modifiers.
+bool hotkeysClash(const Hotkey& a, bool aAnyModifiers, const Hotkey& b, bool bAnyModifiers);
 std::vector<std::wstring> splitKeys(const std::wstring& text);
 std::wstring joinKeys(const std::vector<std::wstring>& keys);
 
@@ -49,6 +52,8 @@ struct Settings {
     // autoStart: start auto-fire on launch and keep the window in the tray (default on).
     bool autoStart = true, onSystemStart = false, blockWin = false;
     std::wstring lastPreset, quickSwitchHotkey = L"!Tilde";
+    // Turns auto-fire on / off while DNF is in the foreground; empty = no hotkey.
+    std::wstring powerHotkey = L"!F12";
     std::wstring theme = L"dark"; // "dark" or "light"
     RunSettings oneKeyRun;
 };

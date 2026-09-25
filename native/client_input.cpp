@@ -3,78 +3,36 @@
 #endif
 #include "client_input.h"
 #include "client_input_model.h"
+#include "client_input_plan.h"
+#include "game_window.h"
 #include "win_timer.h"
 #include <atomic>
-#include <cwchar>
 #include <memory>
 #include <new>
 
 extern "C" int AF_PauseKey(void*, unsigned, unsigned, int);
+#ifndef EVENT_SYSTEM_DESKTOPSWITCH
+#define EVENT_SYSTEM_DESKTOPSWITCH 0x0020
+#endif
 
 namespace dafclient {
 namespace {
 constexpr unsigned kQueueSize = 512;
 constexpr ULONG_PTR kInputMarker = 0x44414649; // Diagnostic tag only; no trust decisions.
-bool isDnf(HWND window) {
-    if (!window) return false;
-    wchar_t className[128]{};
-    if (!GetClassNameW(window, className, 128)) return false;
-    if (std::wcscmp(className, L"地下城与勇士")
-        && std::wcscmp(className, L"Dungeon & Fighter")
-        && std::wcscmp(className, L"Dungeon Fighter Online")) return false;
-    DWORD pid = 0;
-    GetWindowThreadProcessId(window, &pid);
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!process) return false;
-    wchar_t path[32768]{};
-    DWORD size = 32768;
-    const bool ok = QueryFullProcessImageNameW(process, 0, path, &size) != FALSE;
-    CloseHandle(process);
-    const auto* base = std::wcsrchr(path, L'\\');
-    return ok && _wcsicmp(base ? base + 1 : path, L"DNF.exe") == 0;
-}
-InputPlan makePlan(const Profile& profile, const Settings& settings, bool enabled) {
-    InputPlan plan;
-    const auto run = resolveRunSettings(profile, settings);
-    plan.running = enabled && run.enabled;
-    plan.pressMs = run.pressMs; plan.gapMs = run.gapMs; plan.guardMs = run.guardMs;
-    if (plan.running)
-        for (unsigned i = 0; i < 4; ++i) plan.directions[i] = parseKey(run.keys[i]).descriptor();
-    if (enabled && profile.combo) {
-        for (const auto& configured : profile.combos) {
-            const auto trigger = parseKey(configured.trigger);
-            if (!trigger) continue;
-            InputCombo combo; combo.trigger = trigger.descriptor();
-            for (const auto& configuredStep : configured.steps) {
-                const auto key = parseKey(configuredStep.key);
-                if (key) combo.steps.push_back({key.descriptor(), configuredStep.intervalMs});
-            }
-            if (!combo.steps.empty()) plan.combos.push_back(std::move(combo));
-        }
-    }
-    // Legacy StartComboHotkeys ran after run bindings. Preserve that priority
-    // when a user intentionally assigns the same physical key to both roles.
-    for (const auto& combo : plan.combos)
-        for (auto& direction : plan.directions)
-            if (direction && inputId(direction) == inputId(combo.trigger)) direction = 0;
-    // Same set as AF's physical callbacks: only manually managed autofire keys
-    // can request post-skill run recovery, never arbitrary keyboard input.
-    if (enabled) {
-        for (const auto& rule : buildRules(profile, settings))
-            if (rule.manual) plan.refreshKeys[inputId(rule.descriptor)] = true;
-    }
-    return plan;
-}
 } // namespace
 
 struct Controller::Context final : InputSink {
     struct Event { KeyCode key = 0; bool down = false, focus = false; HWND target = nullptr; InputTick time = 0; };
     InputPlan plan;
-    Hotkey quick, toggle;
+    Hotkey quick, power, toggle;
     std::array<bool, 513> suppress{};
     std::array<bool, 256> virtualDown{};
     std::array<PhysicalPressState, 513> physical{}; // Hook-thread-only press pairing.
     std::array<KeyCode, 513> owned{}; // Successfully submitted Downs, retained through cleanup failures.
+    std::array<bool, 513> scanForm{}; // Movement keys: sent as scan codes mapped to their real VK.
+    Inheritance inherit; // Keys still held from the previous controller (worker applies once).
+    std::array<unsigned char, 513> previousOut{}; // Worker exit: movement keys held in game (see inheritHeld).
+    ULONGLONG stoppedAt = 0;
     Event queue[kQueueSize]{};
     std::atomic<unsigned> write{0}, read{0};
     std::atomic<HWND> target{nullptr};
@@ -87,7 +45,7 @@ struct Controller::Context final : InputSink {
     HANDLE hookThread = nullptr, workerThread = nullptr;
     DWORD hookThreadId = 0;
     HHOOK hook = nullptr;
-    HWINEVENTHOOK foregroundHook = nullptr;
+    HWINEVENTHOOK foregroundHook = nullptr, desktopHook = nullptr;
     std::atomic<DWORD> failure{0};
     static thread_local Context* local;
 
@@ -121,9 +79,33 @@ struct Controller::Context final : InputSink {
     }
     void foreground() {
         const auto candidate = GetForegroundWindow();
-        const auto verified = isDnf(candidate) ? candidate : nullptr;
-        if (target.exchange(verified) != verified)
+        const auto verified = isDnfWindow(candidate) ? candidate : nullptr;
+        if (target.exchange(verified) != verified) {
             push({0, false, true, verified, daf::qpc_us()});
+            if (verified) reconcile();
+        }
+    }
+    // Hook-thread only. A pass-through key whose Up this hook missed (another
+    // hook consumed it, or the hook was skipped) would block running forever.
+    // Movement keys are skipped: the scan-code Downs/Ups this controller injects
+    // for them also move their async state.
+    void reconcile() {
+        for (unsigned id = 0; id < physical.size(); ++id) {
+            auto& state = physical[id];
+            if (!state.down || !state.code || scanForm[id]) continue;
+            if (!state.stale((GetAsyncKeyState(int(state.code >> 16)) & 0x8000) != 0)) continue;
+            state.forget();
+            push({state.code, false, false, target.load(), daf::qpc_us()});
+        }
+        for (unsigned vk = 1; vk < virtualDown.size(); ++vk)
+            if (virtualDown[vk] && !(GetAsyncKeyState(int(vk)) & 0x8000)) virtualDown[vk] = false;
+    }
+    // Switching to the secure desktop (Ctrl+Alt+Del, Win+L, UAC) hides every Up
+    // from this hook: treat all keys as released, including swallowed ones.
+    void releaseAll() {
+        for (auto& state : physical)
+            if (state.forget() && state.code) push({state.code, false, false, target.load(), daf::qpc_us()});
+        virtualDown.fill(false);
     }
     unsigned modifiers() const {
         unsigned mods = 0;
@@ -133,13 +115,9 @@ struct Controller::Context final : InputSink {
         if (virtualDown[VK_LWIN] || virtualDown[VK_RWIN]) mods |= MOD_WIN;
         return mods;
     }
-    bool matches(const Hotkey& hotkey, KeyCode key, bool wildcard = false) const {
-        if (!hotkey || hotkey.key.physical_id() != inputId(key)) return false;
-        // The old run-toggle hotkey uses *; quick-switch uses exact modifiers.
-        return wildcard ? (modifiers() & hotkey.modifiers) == hotkey.modifiers : modifiers() == hotkey.modifiers;
-    }
-    void command(InputCommand command) {
-        if (!PostMessageW(ui, kInputCommandMessage, static_cast<WPARAM>(command), 0)) fail(GetLastError());
+    // The DNF window rides along so the UI can place its notice over the game.
+    void command(InputCommand command, HWND game = nullptr) {
+        if (!PostMessageW(ui, kInputCommandMessage, static_cast<WPARAM>(command), reinterpret_cast<LPARAM>(game))) fail(GetLastError());
     }
     static LRESULT CALLBACK keyboard(int code, WPARAM message, LPARAM parameter) {
         auto* self = local;
@@ -151,19 +129,25 @@ struct Controller::Context final : InputSink {
             | (event->vkCode << 16);
         const auto id = inputId(key);
         const bool down = !(event->flags & LLKHF_UP);
-        const bool changed = self->physical[id].down != down;
-        if (event->vkCode < 256) self->virtualDown[event->vkCode] = down;
         // The foreground notification can be queued behind the physical event.
-        // Refresh verification before swallowing anything in a different window.
+        // Refresh verification before swallowing anything in a different window
+        // (and before this event updates the ledger that refresh reconciles).
         if (GetForegroundWindow() != self->target.load()) self->foreground();
+        const bool changed = self->physical[id].down != down;
+        self->physical[id].code = key;
+        if (event->vkCode < 256) self->virtualDown[event->vkCode] = down;
         const auto target = self->target.load();
         const bool inDnf = target && GetForegroundWindow() == target;
         bool suppressByScope = down && inDnf && self->suppress[id];
-        const bool quick = changed && down && self->matches(self->quick, key);
-        if (quick) self->command(InputCommand::QuickSwitch);
-        if (!quick && changed && down && self->enabled && inDnf && self->matches(self->toggle, key, true)) {
-            self->command(InputCommand::ToggleRun);
-            suppressByScope = true;
+        const auto action = changed && down
+            ? hotkeyAction(self->quick, self->power, self->toggle, id, self->modifiers(), inDnf, self->enabled)
+            : HotkeyAction::None;
+        switch (action) {
+        case HotkeyAction::QuickSwitch: self->command(InputCommand::QuickSwitch); break;
+        // Game-only hotkeys never reach DNF (their Up is swallowed with the Down).
+        case HotkeyAction::Power: self->command(InputCommand::TogglePower, target); suppressByScope = true; break;
+        case HotkeyAction::ToggleRun: self->command(InputCommand::ToggleRun, target); suppressByScope = true; break;
+        case HotkeyAction::None: break;
         }
         if (down && inDnf && self->blockWin && (event->vkCode == VK_LWIN || event->vkCode == VK_RWIN)) suppressByScope = true;
         const auto transition = self->physical[id].observe(down, suppressByScope);
@@ -175,6 +159,9 @@ struct Controller::Context final : InputSink {
     static void CALLBACK foregroundCallback(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
         if (local) local->foreground();
     }
+    static void CALLBACK desktopCallback(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD) {
+        if (local && !local->failure.load()) local->releaseAll();
+    }
     static DWORD WINAPI hookMain(void* argument) {
         auto* self = static_cast<Context*>(argument);
         local = self;
@@ -184,6 +171,10 @@ struct Controller::Context final : InputSink {
         self->foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
             nullptr, foregroundCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
         if (!self->hook || !self->foregroundHook) self->fail(GetLastError());
+        // Best effort: without it a secure-desktop switch is only repaired by
+        // the async-state check when DNF regains focus.
+        self->desktopHook = SetWinEventHook(EVENT_SYSTEM_DESKTOPSWITCH, EVENT_SYSTEM_DESKTOPSWITCH,
+            nullptr, desktopCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
         self->foreground();
         SetEvent(self->ready);
         while (!self->failure.load()) {
@@ -193,6 +184,7 @@ struct Controller::Context final : InputSink {
         }
         if (self->hook) UnhookWindowsHookEx(self->hook);
         if (self->foregroundHook) UnhookWinEvent(self->foregroundHook);
+        if (self->desktopHook) UnhookWinEvent(self->desktopHook);
         local = nullptr;
         return 0;
     }
@@ -202,7 +194,7 @@ struct Controller::Context final : InputSink {
         lostFocus = false;
         if (down && (WaitForSingleObject(stopEvent, 0) != WAIT_TIMEOUT
             || !workerTarget || target.load() != workerTarget
-            || GetForegroundWindow() != workerTarget || !isDnf(workerTarget))) {
+            || GetForegroundWindow() != workerTarget || !isDnfWindow(workerTarget))) {
             lostFocus = true;
             return false;
         }
@@ -215,7 +207,7 @@ struct Controller::Context final : InputSink {
             input.ki.dwFlags = (scan & 0x100) ? KEYEVENTF_EXTENDEDKEY : 0;
             // Run directions keep the AHK `scXX` form. Combo steps use AHK's
             // `vkFFscXX` (ComboSendKey -> SendIP) so chat receives no text.
-            if (isDirection(key)) input.ki.dwFlags |= KEYEVENTF_SCANCODE;
+            if (scanForm[inputId(key)]) input.ki.dwFlags |= KEYEVENTF_SCANCODE;
             else input.ki.wVk = 0xFF;
         }
         if (!down) input.ki.dwFlags |= KEYEVENTF_KEYUP;
@@ -223,11 +215,6 @@ struct Controller::Context final : InputSink {
         if (SendInput(1, &input, sizeof(INPUT)) != 1) { fail(GetLastError()); return false; }
         owned[inputId(key)] = down ? key : 0;
         return true;
-    }
-    bool isDirection(KeyCode key) const {
-        for (const auto direction : plan.directions)
-            if (direction && inputId(direction) == inputId(key)) return true;
-        return false;
     }
     bool releaseOwned() {
         for (unsigned attempt = 0; attempt < 3; ++attempt) {
@@ -265,6 +252,12 @@ struct Controller::Context final : InputSink {
             // by this worker; a repeated WinEvent for the same HWND is optional.
             model.focus(effective != nullptr, daf::qpc_us());
         };
+        // Keys held across a restart: skills first so they defer the directions,
+        // then former directions handed back, then directions of this plan.
+        synchronizeFocus();
+        for (const auto key : self->inherit.others) model.adopt(key, daf::qpc_us());
+        for (const auto key : self->inherit.handBack) model.handBack(key, daf::qpc_us());
+        for (const auto key : self->inherit.directions) model.adopt(key, daf::qpc_us());
         while (!self->failure.load() && WaitForSingleObject(self->stopEvent, 0) == WAIT_TIMEOUT) {
             Event event;
             while (self->pop(event)) {
@@ -301,10 +294,13 @@ struct Controller::Context final : InputSink {
         // Nothing may unwind across the Windows thread entry point. Cancellation
         // is allocation-free and retains ownership until each Up succeeds.
         if (owner) {
+            for (const auto key : self->plan.directions)
+                if (key) self->previousOut[inputId(key)] = owner->outputDown(key) ? 2 : 1;
             owner->cancel(daf::qpc_us());
             if (owner->failed()) self->fail(ERROR_WRITE_FAULT);
         }
         self->releaseOwned();
+        self->stoppedAt = GetTickCount64();
         return 0;
     }
 };
@@ -317,11 +313,23 @@ bool Controller::start(const Profile& profile, const Settings& settings, void* e
     auto* context = new (std::nothrow) Context;
     if (!context) { lastError_ = ERROR_NOT_ENOUGH_MEMORY; return false; }
     context_ = context;
+    // While no hook ran, pass-through keys may have been released unseen.
+    for (auto& state : physical_)
+        if (state.code && state.stale((GetAsyncKeyState(int(state.code >> 16)) & 0x8000) != 0)) state.forget();
+    for (unsigned vk = 1; vk < virtualDown_.size(); ++vk)
+        if (virtualDown_[vk] && !(GetAsyncKeyState(int(vk)) & 0x8000)) virtualDown_[vk] = false;
     context->physical = physical_;
     context->virtualDown = virtualDown_;
     try {
-    context->plan = makePlan(profile, settings, enabled);
+    context->plan = makeInputPlan(profile, settings, enabled);
+    // Only an immediate restart hands held keys over; later the ledger may be stale.
+    const bool fresh = previousAt_ && GetTickCount64() - previousAt_ <= 1000;
+    context->inherit = inheritHeld(physical_, previous_, context->plan, fresh);
+    previous_ = {}; previousAt_ = 0;
+    for (auto key : context->plan.directions) if (key) context->scanForm[inputId(key)] = true;
+    for (auto key : context->inherit.handBack) context->scanForm[inputId(key)] = true;
     context->quick = parseHotkey(settings.quickSwitchHotkey);
+    context->power = parseHotkey(settings.powerHotkey);
     context->toggle = parseHotkey(settings.oneKeyRun.toggleHotkey);
     context->enabled = enabled; context->blockWin = settings.blockWin;
     context->engine = engine; context->ui = ui;
@@ -362,6 +370,8 @@ bool Controller::stop() {
     }
     physical_ = context->physical;
     virtualDown_ = context->virtualDown;
+    previous_ = context->previousOut;
+    previousAt_ = context->stoppedAt;
     if (!context->releaseOwned()) {
         lastError_ = context->failure.load() ? context->failure.load() : ERROR_WRITE_FAULT;
         return false; // Retain the owned-key ledger; do not silently reconfigure.

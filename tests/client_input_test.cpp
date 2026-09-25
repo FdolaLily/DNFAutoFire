@@ -1,6 +1,8 @@
 #include "../native/client_input_model.h"
+#include "../native/client_input_plan.h"
 #include "../native/client_input_state.h"
 #include <cstdlib>
+#include <initializer_list>
 #include <iostream>
 #include <string>
 
@@ -159,8 +161,14 @@ void commandWindowAndRecovery() {
     check(refresh.model.isRunning(3) && refresh.sink.edges.size() == 7, "managed skill release restores confirmed running direction");
     Rig stale; stale.run(); stale.key(a, true, 200); stale.key(b, true, 210); stale.key(a, false, 220); stale.tick(1000);
     check(stale.sink.edges.size() == 3, "other input invalidates stale skill-release recovery");
-    Rig ordinary; ordinary.run(); ordinary.key(b, true, 200); ordinary.key(b, false, 220); ordinary.tick(1000);
-    check(ordinary.sink.edges.size() == 3, "unmanaged keys cannot initiate synthetic run recovery");
+    // Any other key also ends DNF's run, but it only earns a guarded restart:
+    // nothing is sent before the guard elapses after its release.
+    Rig ordinary; ordinary.run(); ordinary.key(b, true, 200); ordinary.key(b, false, 220);
+    for (InputTick time = 220; time < 360; ++time) ordinary.tick(time);
+    check(ordinary.sink.edges.size() == 3 && !ordinary.model.isRunning(3), "unmanaged key waits a full guard before restarting the run");
+    for (InputTick time = 360; time <= 1000; ++time) ordinary.tick(time);
+    check(ordinary.sink.edges.size() == 7 && ordinary.model.isRunning(3), "unmanaged key release restarts a still-held run with a fresh pair");
+    ordinary.edge(3, right, false); ordinary.edge(4, right, true); ordinary.edge(5, right, false); ordinary.edge(6, right, true);
 }
 void alternatingDiagonals() {
     const KeyCode keys[] = {up, down, left, right};
@@ -334,7 +342,11 @@ void randomizedLifecycle() {
             rig.tick(step * 7);
             check(!rig.model.failed(), "randomized legal input does not fail the model");
         }
-        rig.model.focus(false, 4000000);
+        for (InputTick time = 3500; time <= 4500; ++time) rig.tick(time);
+        const auto settled = rig.sink.edges.size();
+        for (InputTick time = 4501; time <= 7500; ++time) rig.tick(time);
+        check(rig.sink.edges.size() == settled, "randomized input settles: output stops once input stops");
+        rig.model.focus(false, 8000000);
         std::array<bool, 513> outputs{};
         for (const auto& edge : rig.sink.edges) {
             check(outputs[inputId(edge.key)] != edge.down, "owned output edges alternate without duplicate Down or stray Up");
@@ -368,11 +380,277 @@ void physicalPairingAcrossFocusAndRestart() {
     result = windowsKey.observe(false, true);
     check(!result.suppress, "enabling block-Win mid-press never swallows the unowned Up");
 }
+
+// ---------------------------------------------------------------- 2026-09-25 audit
+// Each case below reproduced a gap found by exhaustive search of the previous
+// state machine (see docs/更新日志.md, v0.3.0.x "一键奔跑穷举修复").
+void tickRange(Rig& rig, InputTick from, InputTick to) { for (InputTick time = from; time <= to; ++time) rig.tick(time); }
+struct Step { InputTick at; KeyCode key; bool down; };
+InputTick play(Rig& rig, std::initializer_list<Step> steps) {
+    InputTick now = 0;
+    for (const auto& step : steps) { tickRange(rig, now, step.at); rig.key(step.key, step.down, step.at); rig.tick(step.at); now = step.at + 1; }
+    return now;
+}
+// Settle for 1s, then count edges over the next 3s.
+std::size_t edgesAfterSettling(Rig& rig, InputTick from) {
+    tickRange(rig, from, from + 1000);
+    const auto before = rig.sink.edges.size();
+    tickRange(rig, from + 1001, from + 4000);
+    return rig.sink.edges.size() - before;
+}
+void noEndlessRetap() {
+    auto plan = movement(); plan.guardMs = 150;
+    Rig three(plan);
+    auto end = play(three, {{20, right, true}, {200, down, true}, {220, left, true}, {270, up, true}, {290, up, false}});
+    check(edgesAfterSettling(three, end) == 0, "held directions plus a vertical flick settle instead of re-tapping forever");
+    check(three.model.outputDown(left) && three.model.outputDown(down) && !three.model.outputDown(right) && !three.model.outputDown(up),
+        "newest horizontal and the held vertical remain; the older opposite is suppressed");
+    check(three.model.isRunning(2) && three.model.isRunning(1), "the settled diagonal runs");
+    Rig restored(plan);
+    end = play(restored, {{20, right, true}, {200, left, true}, {380, left, false}, {400, down, true}, {420, up, true}, {440, up, false}});
+    check(edgesAfterSettling(restored, end) == 0, "reversal, restore and a vertical flick settle instead of re-tapping forever");
+    check(restored.model.isRunning(3) && restored.model.isRunning(1) && restored.model.outputDown(right) && restored.model.outputDown(down),
+        "the restored diagonal runs");
+    for (int i = 0; i < 4; ++i) check(!restored.model.pending(i), "no direction is left in a double-tap stage");
+}
+void skillRepressDuringRecovery() {
+    Rig rig; rig.run();
+    rig.key(a, true, 200); rig.key(a, false, 220); rig.tick(230);
+    rig.key(a, true, 240); rig.key(a, false, 260);
+    tickRange(rig, 261, 600);
+    check(rig.model.isRunning(3) && rig.model.outputDown(right), "re-pressing the skill during its recovery pair still recovers the run");
+    const auto& edges = rig.sink.edges; const auto n = edges.size();
+    check(n == 9 && edges[n - 4].key == right && !edges[n - 4].down && edges[n - 4].time == 260000 && edges[n - 1].down,
+        "recovery restarts with a complete pair from the final release");
+    Rig two = [] { auto plan = movement(); plan.refreshKeys[inputId(b)] = true; return Rig(plan); }();
+    two.run(); two.key(a, true, 200); two.key(a, false, 220); two.tick(230); two.key(b, true, 240); two.key(b, false, 260);
+    tickRange(two, 261, 600);
+    check(two.model.isRunning(3), "another managed skill during the recovery pair still recovers the run");
+}
+void runAfterSkillRelease() {
+    Rig held; held.key(a, true, 0); held.key(right, true, 50); tickRange(held, 51, 299);
+    check(held.sink.edges.size() == 1 && !held.model.isRunning(3), "a direction pressed during a held skill only walks");
+    held.key(a, false, 300); tickRange(held, 300, 439);
+    check(held.sink.edges.size() == 1, "running after the skill still waits the full guard");
+    tickRange(held, 440, 600);
+    check(held.model.isRunning(3) && held.sink.edges.size() == 5, "releasing the skill starts the held direction's run with a fresh pair");
+    Rig early; early.key(right, true, 0); early.key(a, true, 80); early.key(a, false, 200); tickRange(early, 200, 500);
+    check(early.model.isRunning(3), "a skill inside the guard no longer leaves the held direction walking");
+    Rig unseen; unseen.model.focus(false, 0); unseen.key(b, true, 10); unseen.model.focus(true, 20000);
+    unseen.key(right, true, 100); tickRange(unseen, 100, 400);
+    check(!unseen.model.isRunning(3) && unseen.model.outputDown(right), "a key held from before focus returned defers running");
+    unseen.key(b, false, 400); tickRange(unseen, 400, 700);
+    check(unseen.model.isRunning(3), "releasing a key whose Down was never seen still lets the held direction run");
+}
+void managedSkillsTogether() {
+    auto plan = movement(); plan.refreshKeys[inputId(b)] = true;
+    Rig rig(plan); rig.run(); rig.key(a, true, 200); rig.key(b, true, 250); rig.key(b, false, 300); tickRange(rig, 300, 499);
+    check(rig.sink.edges.size() == 3, "releasing one managed skill while another is held sends nothing");
+    rig.key(a, false, 500); tickRange(rig, 500, 700);
+    check(rig.model.isRunning(3) && rig.sink.edges.size() == 7 && rig.sink.edges[3].time == 500000,
+        "the run recovers once the last managed skill is released");
+    Rig diagonal; diagonal.run(); diagonal.key(up, true, 200);
+    check(diagonal.model.isRunning(0), "orthogonal axis joins the run");
+    diagonal.key(a, true, 300); diagonal.key(up, false, 350); diagonal.key(a, false, 400); tickRange(diagonal, 400, 600);
+    bool pair = false;
+    for (const auto& edge : diagonal.sink.edges) if (edge.key == right && !edge.down && edge.time == 400000) pair = true;
+    check(pair && diagonal.model.isRunning(3), "the remaining axis re-runs after its partner was released during the skill");
+    diagonal.key(up, true, 700);
+    check(diagonal.model.isRunning(0) && diagonal.model.deadline() == InputModel::never, "an axis re-added to the recovered run joins it");
+    Rig combo(comboPlan()); combo.run(); combo.key(trigger, true, 200); combo.key(trigger, false, 210);
+    tickRange(combo, 200, 299);
+    bool quiet = true;
+    for (const auto& edge : combo.sink.edges) if (edge.key == right && edge.time >= 200000) quiet = false;
+    check(quiet && !combo.model.isRunning(3), "no movement edges while the combo plays");
+    tickRange(combo, 300, 500);
+    check(combo.model.isRunning(3), "the run recovers after the combo finishes");
+    bool recovered = false;
+    for (const auto& edge : combo.sink.edges) if (edge.key == right && !edge.down && edge.time == 300000) recovered = true;
+    check(recovered, "recovery starts right after the combo's last pulse");
+}
+void playerDoubleTap() {
+    Rig own; own.key(right, true, 0); own.key(right, false, 80); own.key(right, true, 150);
+    check(own.model.isRunning(3) && own.model.deadline() == InputModel::never && own.sink.edges.size() == 3,
+        "the player's own quick double tap counts as a started run");
+    tickRange(own, 150, 600);
+    check(own.sink.edges.size() == 3, "nothing is injected after the player's own double tap");
+    Rig slow; slow.key(right, true, 0); slow.key(right, false, 300); slow.key(right, true, 350);
+    check(!slow.model.isRunning(3) && slow.model.deadline() != InputModel::never, "a long first press is not a double tap");
+    Rig late; late.key(right, true, 0); late.key(right, false, 80); late.key(right, true, 300);
+    check(!late.model.isRunning(3) && late.model.deadline() != InputModel::never, "a re-press after 200ms is not a double tap");
+    Rig skill; skill.key(right, true, 0); skill.key(right, false, 80); skill.key(a, true, 100); skill.key(a, false, 110); skill.key(right, true, 150);
+    check(!skill.model.isRunning(3), "a skill between the taps breaks the double tap");
+    Rig other; other.key(right, true, 0); other.key(right, false, 80); other.key(up, true, 100); other.key(up, false, 120); other.key(right, true, 150);
+    check(!other.model.isRunning(3), "another direction between the taps breaks the double tap");
+}
+void oppositeFromIdle() {
+    Rig rig; rig.key(right, true, 0); rig.key(left, true, 50);
+    check(!rig.model.outputDown(right) && rig.model.outputDown(left), "the newer opposite direction replaces the older one");
+    tickRange(rig, 50, 500);
+    check(rig.model.isRunning(2) && !rig.model.outputDown(right), "the newer opposite direction runs");
+    rig.key(left, false, 600); tickRange(rig, 600, 800);
+    check(rig.model.isRunning(3) && rig.model.outputDown(right) && !rig.model.outputDown(left), "releasing it restores and runs the older direction");
+    Rig vertical; vertical.key(up, true, 0); vertical.key(down, true, 30); tickRange(vertical, 30, 500);
+    check(vertical.model.isRunning(1) && !vertical.model.outputDown(up), "vertical opposites follow the same rule");
+}
+void restartHandoff() {
+    Rig adopted; adopted.model.adopt(c, 0); adopted.model.adopt(right, 0);
+    check(adopted.sink.edges.size() == 1 && adopted.model.outputDown(right), "a direction held across a restart walks at once");
+    tickRange(adopted, 0, 299);
+    check(!adopted.model.isRunning(3), "the still-held toggle hotkey defers the run");
+    adopted.key(c, false, 300); tickRange(adopted, 300, 600);
+    check(adopted.model.isRunning(3), "releasing the toggle hotkey runs the direction held across the restart");
+    InputPlan partial = movement(); partial.directions[3] = 0; // Right is no longer a run key.
+    Rig handed(partial); handed.model.handBack(right, 0);
+    check(handed.model.outputDown(right) && handed.sink.edges.size() == 1, "a former direction still held keeps walking after the restart");
+    handed.key(up, true, 10); tickRange(handed, 10, 300);
+    check(handed.model.isRunning(0), "a handed-back movement key is not a skill and does not block running");
+    handed.key(right, false, 400);
+    check(!handed.model.outputDown(right) && handed.sink.edges.back().key == right && !handed.sink.edges.back().down,
+        "its physical release ends the handed-back Down");
+    Rig lost(partial); lost.model.handBack(right, 0); lost.model.focus(false, 50000);
+    check(!lost.model.outputDown(right), "focus loss releases a handed-back key");
+    lost.model.focus(true, 60000); const auto count = lost.sink.edges.size(); lost.key(right, false, 100);
+    check(lost.sink.edges.size() == count, "its later physical Up sends nothing more");
+
+    std::array<PhysicalPressState, 513> held{};
+    std::array<unsigned char, 513> previous{};
+    for (const auto key : {right, left, up, c, trigger}) { held[inputId(key)].observe(true, true); held[inputId(key)].code = key; }
+    previous[inputId(right)] = 2; previous[inputId(left)] = 1; previous[inputId(up)] = 2;
+    InputPlan next = comboPlan(); next.directions = {up, down, 0, 0};
+    const auto inherited = inheritHeld(held, previous, next, true);
+    check(inherited.directions.size() == 1 && inherited.directions[0] == up, "a held key that is a direction of the new plan restarts as one");
+    check(inherited.handBack.size() == 1 && inherited.handBack[0] == right, "an old direction held in game but no longer managed is handed back");
+    check(inherited.others.size() == 2, "held skills and combo triggers defer running; an old unheld direction is ignored");
+    const auto stale = inheritHeld(held, previous, next, false);
+    check(stale.directions.empty() && stale.handBack.empty() && stale.others.empty(), "a stale ledger inherits nothing");
+}
+void missedPhysicalUps() {
+    PhysicalPressState passed; passed.observe(true, false);
+    check(passed.stale(false) && !passed.stale(true), "a pass-through key whose Up was missed is detected from async state");
+    PhysicalPressState owned; owned.observe(true, true);
+    check(!owned.stale(false), "a swallowed key's async state is never trusted");
+    check(owned.forget() && !owned.down && !owned.swallowed, "a secure-desktop switch forgets even swallowed presses");
+    const auto late = owned.observe(false, true);
+    check(!late.changed && !late.suppress, "the late real Up after forgetting passes through and is no new event");
+    const auto again = owned.observe(true, true);
+    check(again.changed && again.suppress, "the next real press is a new press again");
+}
+// Simplified DNF: a Down that follows the same key's short Down/Up (press and
+// gap <= 250ms, no other movement Down between) runs; a horizontal Down against
+// the facing without a double tap, a skill, or releasing all movement walks.
+struct EmulatedGame {
+    bool out[4]{}, hadDown[4]{}, upAfterDown[4]{}, running = false;
+    int facing = -1, lastDownKey = -1;
+    InputTick downAt[4]{}, upAt[4]{};
+    void edge(int d, bool isDown, InputTick t) {
+        if (isDown) {
+            const bool pair = hadDown[d] && upAfterDown[d] && lastDownKey == d && upAt[d] - downAt[d] <= 250000 && t - upAt[d] <= 250000;
+            if (d >= 2 && facing >= 0 && facing != d && !pair) running = false;
+            if (pair) running = true;
+            if (d >= 2) facing = d;
+            out[d] = hadDown[d] = true; upAfterDown[d] = false; downAt[d] = t; lastDownKey = d;
+        } else {
+            out[d] = false; upAfterDown[d] = true; upAt[d] = t;
+            if (!out[0] && !out[1] && !out[2] && !out[3]) running = false;
+        }
+    }
+};
+// Every key sequence up to a length, with representative gaps, must settle into
+// the one-key-run contract. `a` is a managed skill, `b` any other key.
+void exhaustiveSequences() {
+    const KeyCode keys[] = {up, down, left, right, a, b};
+    std::size_t sequences = 0;
+    const auto simulate = [&](const int* index, const int* gaps, int n) {
+        ++sequences;
+        auto plan = movement(); plan.guardMs = 150;
+        Rig rig(plan);
+        bool held[6]{}; std::size_t order[4]{}; std::vector<InputTick> skills;
+        InputTick now = 0;
+        const auto advance = [&](InputTick until) {
+            for (InputTick due; (due = rig.model.deadline()) <= until;) { rig.sink.now = due; rig.model.tick(due); }
+        };
+        for (int e = 0; e < n; ++e) {
+            now += InputTick(gaps[e]) * 1000; advance(now);
+            const int k = index[e]; held[k] = !held[k];
+            if (held[k] && k < 4) order[k] = std::size_t(e) + 1;
+            if (held[k] && k >= 4) skills.push_back(now);
+            rig.sink.now = now; rig.model.physical(keys[k], held[k], now); rig.model.tick(now);
+        }
+        advance(now + 1000000);
+        const auto settled = rig.sink.edges.size();
+        advance(now + 4000000);
+        check(rig.sink.edges.size() == settled, "exhaustive: output stops once input stops");
+        std::array<bool, 513> outputs{};
+        EmulatedGame game; std::size_t s = 0;
+        for (const auto& edge : rig.sink.edges) {
+            while (s < skills.size() && skills[s] <= edge.time) { game.running = false; ++s; }
+            check(outputs[inputId(edge.key)] != edge.down, "exhaustive: edges alternate without duplicate Down or stray Up");
+            outputs[inputId(edge.key)] = edge.down;
+            for (int d = 0; d < 4; ++d) if (edge.key == keys[d]) game.edge(d, edge.down, edge.time);
+        }
+        if (s < skills.size()) game.running = false;
+        bool want[4], anyRun = false;
+        for (int d = 0; d < 4; ++d) want[d] = held[d];
+        for (int d = 0; d < 4; d += 2) if (held[d] && held[d + 1]) want[order[d] > order[d + 1] ? d + 1 : d] = false;
+        for (int d = 0; d < 4; ++d) {
+            check(held[d] || !rig.model.outputDown(keys[d]), "exhaustive: a released direction is never left Down");
+            check(held[d] || !rig.model.isRunning(d), "exhaustive: only held directions are marked running");
+            check(want[d] == rig.model.outputDown(keys[d]), "exhaustive: exactly the newest held directions reach the game");
+            anyRun |= rig.model.isRunning(d);
+        }
+        if (held[4] || held[5]) { check(!anyRun, "exhaustive: no run is claimed while a skill key is held"); return; }
+        for (int d = 0; d < 4; ++d) check(!want[d] || rig.model.isRunning(d), "exhaustive: directions held alone end up running");
+        check(!anyRun || game.running, "exhaustive: a claimed run is one DNF would also be running");
+    };
+    int index[8], gaps[8];
+    const int mixedGaps[] = {0, 40, 100, 170, 400};
+    for (int n = 1; n <= 4; ++n) {
+        long total = 1; for (int i = 0; i < n; ++i) total *= 6 * 5;
+        for (long code = 0; code < total; ++code) {
+            long x = code;
+            for (int i = 0; i < n; ++i) { index[i] = int(x % 6); x /= 6; gaps[i] = mixedGaps[x % 5]; x /= 5; }
+            simulate(index, gaps, n);
+        }
+    }
+    const int rollGaps[] = {20, 50, 100, 180};
+    for (int n = 1; n <= 5; ++n) {
+        long total = 1; for (int i = 0; i < n; ++i) total *= 4 * 4;
+        for (long code = 0; code < total; ++code) {
+            long x = code;
+            for (int i = 0; i < n; ++i) { index[i] = int(x % 4); x /= 4; gaps[i] = rollGaps[x % 4]; x /= 4; }
+            simulate(index, gaps, n);
+        }
+    }
+    check(sequences > 1900000, "exhaustive search covered every sequence");
+}
+// Hotkeys seen by the hook: quick switch anywhere; the auto-fire power switch only in the
+// DNF foreground (running or not); the run toggle only there while auto-fire runs.
+void hotkeyDispatch() {
+    constexpr unsigned alt = 0x1, ctrl = 0x2, shift = 0x4; // MOD_ALT / MOD_CONTROL / MOD_SHIFT
+    const Hotkey quick{Key{L"Tilde", 0x29, 0xC0}, alt}, power{Key{L"F12", 0x58, 0x7B}, alt}, run{Key{L"F10", 0x44, 0x79}, 0};
+    const unsigned f12 = 0x58, f10 = 0x44, tilde = 0x29;
+    const auto act = [&](unsigned id, unsigned mods, bool inDnf, bool enabled) { return hotkeyAction(quick, power, run, id, mods, inDnf, enabled); };
+    check(act(f12, alt, true, false) == HotkeyAction::Power, "power hotkey starts auto-fire from the game");
+    check(act(f12, alt, true, true) == HotkeyAction::Power, "power hotkey stops auto-fire from the game");
+    check(act(f12, alt, false, true) == HotkeyAction::None, "power hotkey is ignored outside DNF");
+    check(act(f12, 0, true, true) == HotkeyAction::None && act(f12, alt | ctrl, true, true) == HotkeyAction::None, "power hotkey needs exact modifiers");
+    check(act(tilde, alt, false, false) == HotkeyAction::QuickSwitch, "quick switch works in any window");
+    check(act(f10, 0, true, true) == HotkeyAction::ToggleRun && act(f10, shift, true, true) == HotkeyAction::ToggleRun, "run toggle keeps AHK * modifiers");
+    check(act(f10, 0, true, false) == HotkeyAction::None && act(f10, 0, false, true) == HotkeyAction::None, "run toggle needs running auto-fire in DNF");
+    const Hotkey none{};
+    check(hotkeyAction(quick, none, run, f12, alt, true, true) == HotkeyAction::None, "cleared power hotkey never fires");
+    const Hotkey altF10{Key{L"F10", 0x44, 0x79}, alt};
+    check(hotkeyAction(quick, altF10, run, f10, alt, true, true) == HotkeyAction::Power, "power wins over the wildcard run toggle");
+    check(hotkeyAction(Hotkey{Key{L"F12", 0x58, 0x7B}, alt}, power, run, f12, alt, true, true) == HotkeyAction::QuickSwitch, "one press fires one hotkey");
+}
 } // namespace
 int main() {
     alternatingDiagonals(); rapidAlternatingDiagonals(); customMovementTiming();
     holdAndCancel(); diagonalAndOpposite(); diagonalStartEdges(); commandWindowAndRecovery(); focusAndIdentity();
     comboTimingAndCancellation(); comboContentionAndFailures(); randomizedLifecycle();
     physicalPairingAcrossFocusAndRestart();
+    noEndlessRetap(); skillRepressDuringRecovery(); runAfterSkillRelease(); managedSkillsTogether();
+    playerDoubleTap(); oppositeFromIdle(); restartHandoff(); missedPhysicalUps(); hotkeyDispatch(); exhaustiveSequences();
     std::cout << "PASS: " << assertions << " input state-machine assertions; no physical input emitted.\n";
 }

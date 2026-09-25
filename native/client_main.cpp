@@ -216,7 +216,7 @@ int selfTest(HINSTANCE instance, bool uiTest) {
     unsigned rule[132]{}; rule[0] = parseKey(L"F24").descriptor();
     Controller controller;
     Profile profile; Settings settings;
-    settings.quickSwitchHotkey.clear(); settings.oneKeyRun.toggleHotkey.clear();
+    settings.quickSwitchHotkey.clear(); settings.powerHotkey.clear(); settings.oneKeyRun.toggleHotkey.clear();
     DWORD initialHandles = 0, finalHandles = 0;
     GetProcessHandleCount(GetCurrentProcess(), &initialHandles);
     for (unsigned iteration = 0; iteration < 25; ++iteration) {
@@ -360,7 +360,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 case InputCommand::Start: ui.start(); break;
                 case InputCommand::Stop: ui.stop(); break;
                 case InputCommand::QuickSwitch: ui.quickSwitch(); break;
-                case InputCommand::ToggleRun: ui.toggleRun(); break;
+                case InputCommand::ToggleRun: ui.toggleRun(reinterpret_cast<HWND>(message.lParam)); break;
+                case InputCommand::TogglePower: ui.togglePower(reinterpret_cast<HWND>(message.lParam)); break;
                 case InputCommand::Exit: ui.quit(); break;
                 case InputCommand::Error: { const DWORD error = runtime->error(); const bool ok = ui.stop(); ui.setStatus((ok ? L"按键控制异常，已停止。Windows 错误码：" : L"按键控制异常，停止未完成。Windows 错误码：") + std::to_wstring(error)); break; }
                 }

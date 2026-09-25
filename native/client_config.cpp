@@ -182,6 +182,12 @@ std::wstring formatHotkey(const Hotkey& hotkey) {
     if (hotkey.modifiers & MOD_WIN) text += L'#';
     return text + hotkey.key.name;
 }
+bool hotkeysClash(const Hotkey& a, bool aAnyModifiers, const Hotkey& b, bool bAnyModifiers) {
+    if (!a || !b || a.key.physical_id() != b.key.physical_id()) return false;
+    if (a.modifiers == b.modifiers) return true;
+    return (aAnyModifiers && (b.modifiers & a.modifiers) == a.modifiers)
+        || (bAnyModifiers && (a.modifiers & b.modifiers) == b.modifiers);
+}
 std::vector<std::wstring> splitKeys(const std::wstring& text) { return split(text, L'|'); }
 std::wstring joinKeys(const std::vector<std::wstring>& keys) {
     std::wstring result;
@@ -322,6 +328,7 @@ void writeSettings(Value& root, const Settings& s) {
     o.set(L"blockWinKey", s.blockWin);
     checkLine(s.lastPreset); o.set(L"lastProfile", s.lastPreset);
     checkLine(s.quickSwitchHotkey); o.set(L"quickSwitchHotkey", s.quickSwitchHotkey);
+    checkLine(s.powerHotkey); o.set(L"powerHotkey", s.powerHotkey);
     o.set(L"theme", s.theme == L"light" ? L"light" : L"dark");
     Value& run = o[L"oneKeyRun"];
     if (!run.isObject()) run = Value::object();
@@ -502,6 +509,7 @@ Settings Store::loadSettings() const {
     s.blockWin = o.at(L"blockWinKey").boolean(false);
     s.lastPreset = o.at(L"lastProfile").string();
     s.quickSwitchHotkey = o.at(L"quickSwitchHotkey").string(s.quickSwitchHotkey);
+    s.powerHotkey = o.at(L"powerHotkey").string(s.powerHotkey);
     s.theme = equal(o.at(L"theme").string(L"dark"), L"light") ? L"light" : L"dark";
     const Value& run = o.at(L"oneKeyRun");
     s.oneKeyRun.enabled = run.at(L"enabled").boolean(false);

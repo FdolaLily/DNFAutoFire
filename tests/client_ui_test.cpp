@@ -87,6 +87,7 @@ int main() {
         expect(ui.runKeys()[0]==L"Up","global run scope restores global directions");
 
         ui.toggleRun(); expect(store.loadSettings().oneKeyRun.enabled,"run hotkey state saved");
+        expect(ui.noticeText()==L"一键奔跑已开启 · 启动连发后生效","run notice explains it waits for auto-fire");
 
         const unsigned changesBefore=changes;
         ui.setKeyEnabled(L"Q",true);
@@ -104,6 +105,26 @@ int main() {
         expect(!ui.start(false),"failed start is returned to caller");
         expect(ui.status()==L"测试：启动失败详情","failed start retains detailed status");
         allowStart=true;
+
+        // In-game switch (hotkey / tray): toggles, then a corner notice that never takes focus.
+        {
+            const HWND foreground=GetForegroundWindow();
+            ui.togglePower(nullptr);
+            expect(ui.running(),"power hotkey starts auto-fire");
+            expect(ui.noticeText()==L"连发已开启 · 方案 · Existing · Alt + F12 关闭","notice: started, with profile and hotkey");
+            const HWND notice=ui.noticeWindow();
+            expect(notice&&IsWindowVisible(notice),"notice shown");
+            const LONG_PTR ex=notice?GetWindowLongPtrW(notice,GWL_EXSTYLE):0;
+            expect((ex&WS_EX_NOACTIVATE)&&(ex&WS_EX_TRANSPARENT)&&(ex&WS_EX_TOPMOST)&&(ex&WS_EX_TOOLWINDOW),"notice is top-most, click-through and never activated");
+            expect(GetForegroundWindow()==foreground&&GetActiveWindow()!=notice,"notice does not take focus");
+            ui.toggleRun();
+            expect(ui.noticeText()==L"一键奔跑已关闭 · 游戏内按 F10 重新开启","run notice while auto-fire runs");
+            ui.togglePower(nullptr);
+            expect(!ui.running()&&ui.noticeText()==L"连发已关闭 · Alt + F12 重新开启","power hotkey stops; notice says how to resume");
+            allowStart=false; ui.togglePower(nullptr); allowStart=true;
+            expect(!ui.running()&&ui.noticeText().find(L"连发未能启动")==0,"failed start is reported in the notice");
+            ui.toggleRun();
+        }
 
         expect(ui.cloneProfile(),"clone succeeds");
         expect(store.presetNames().size()==2,"clone preserves profiles");
@@ -173,7 +194,7 @@ int main() {
         expect(relativeToDirectory(L"c:\\daf\\y.exe",L"C:\\DAF\\")==L"y.exe","relative conversion ignores case and trailing slash");
         expect(relativeToDirectory(L"D:\\Other\\z.exe",L"C:\\DAF")==L"D:\\Other\\z.exe","program elsewhere keeps its full path");
         expect(relativeToDirectory(L"C:\\DAFX\\z.exe",L"C:\\DAF")==L"C:\\DAFX\\z.exe","sibling folder with the same prefix stays absolute");
-        expect(starts==3,"start callbacks match requests");
+        expect(starts==5,"start callbacks match requests (including the two power-hotkey starts)");
 
         // Program update from a picked file (this test EXE carries the client's version resource).
         {

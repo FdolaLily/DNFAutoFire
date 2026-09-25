@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include "../native/client_config.h"
+#include "../native/client_input_plan.h"
 #include "../native/json.h"
 #include <filesystem>
 #include <fstream>
@@ -37,6 +38,11 @@ int main(int argc, char** argv) {
         check(isNumpadKey(L"NumpadRight") && !isNumpadKey(L"NumLock") && !isNumpadKey(L"Right"), "profession keypad validation");
         check(parseHotkey(L"!PgUp").modifiers == MOD_ALT && parseHotkey(L"!PgUp").key.vk == VK_PRIOR, "existing quick switch hotkey");
         check(formatHotkey(parseHotkey(L"^!+X")) == L"^!+X", "hotkey serialization");
+        check(hotkeysClash(parseHotkey(L"!F12"), false, parseHotkey(L"!F12"), false), "same hotkey clashes");
+        check(!hotkeysClash(parseHotkey(L"!F12"), false, parseHotkey(L"F12"), false), "exact-modifier hotkeys differ by modifiers");
+        check(hotkeysClash(parseHotkey(L"!F10"), false, parseHotkey(L"F10"), true), "run toggle also fires with extra modifiers");
+        check(!hotkeysClash(parseHotkey(L"F10"), false, parseHotkey(L"!F10"), true), "run toggle still needs its own modifiers");
+        check(!hotkeysClash(parseHotkey(L""), false, parseHotkey(L""), false), "cleared hotkeys never clash");
         const auto combos = parseCombos(L"W>W,30;E,30;F,30|S>S,30;E,30;F,30|D>D,10;E,10;F,10");
         check(combos.size() == 3 && combos[2].steps[1].intervalMs == 10, "legacy combo migration");
         check(serializeCombos(combos) == L"W>W,30;E,30;F,30|S>S,30;E,30;F,30|D>D,10;E,10;F,10", "legacy combo exact round trip");
@@ -64,6 +70,7 @@ int main(int argc, char** argv) {
         auto settings = store.loadSettings(); auto profile = store.loadProfile(L"普通");
         check(settings.lastPreset == L"普通" && settings.autoStart && settings.oneKeyRun.enabled, "settings loaded");
         check(settings.oneKeyRun.toggleHotkey == L"PgDn" && settings.quickSwitchHotkey == L"!PgUp", "existing hotkeys preserved");
+        check(settings.powerHotkey == L"!F12" && Settings{}.powerHotkey == L"!F12", "auto-fire power hotkey defaults to Alt+F12");
         check(profile.keys == std::vector<std::wstring>{L"X",L"Z",L"A",L"Num0"} && profile.downMs == 7 && profile.upMs == 7, "current user's ordinary preset unchanged");
         check(settings.oneKeyRun.guardMs == 150, "missing guard delay defaults to 150ms");
         check(Settings{}.autoStart && Store(path + L".absent").loadSettings().autoStart, "auto-start to tray is on by default");
@@ -81,6 +88,14 @@ int main(int argc, char** argv) {
         check(saved.find(L"\"otherTool\"") != saved.npos && saved.find(L"\"futureRun\": 5") != saved.npos, "unknown sections preserved");
         check(saved.find(L"\"version\": 1") != saved.npos, "schema version kept");
         check(store.loadSettings().quickSwitchHotkey == settings.quickSwitchHotkey, "UTF-8 reload");
+        check(saved.find(L"\"powerHotkey\": \"!F12\"") != saved.npos, "power hotkey written");
+        {
+            auto cleared = settings; cleared.powerHotkey.clear(); store.saveSettings(cleared);
+            check(store.loadSettings().powerHotkey.empty(), "cleared power hotkey stays off after reload");
+            cleared.powerHotkey = L"^F11"; store.saveSettings(cleared);
+            check(store.loadSettings().powerHotkey == L"^F11", "custom power hotkey round trip");
+            store.saveSettings(settings);
+        }
         {
             // A second Store instance sees writes made by the first one (file stamp changed).
             const Store other(path);
@@ -129,6 +144,28 @@ int main(int argc, char** argv) {
         check(rules[0].triggerCount == 0, "invalid profession output not activated");
         profile = store.loadProfile(L"普通"); profile.usePresetRunKeys = true; profile.runKeys = {{L"X",L"Z",L"A",L"Num0"}};
         check(buildRules(profile,settings).empty(), "actual preset-specific run directions filtered");
+        {
+            // Run plan: playable combo triggers and enabled profession triggers take
+            // the physical key from a run direction (otherwise the run hook would
+            // swallow it before the engine); program-managed skills recover runs.
+            Settings runSettings; runSettings.oneKeyRun.enabled = true;
+            Profile runProfile; runProfile.keys = {L"X"};
+            runProfile.jianZong = true; runProfile.jianZongSkillKey = L"Right";
+            runProfile.lvRen = true; runProfile.lvRenShotKey = L"Z"; runProfile.lvRenSkillKeys = {L"Up", L"S"};
+            runProfile.combo = true; runProfile.combos = {Combo{L"Left", {ComboStep{L"D", 30}}}, Combo{L"Down", {}}};
+            auto plan = makeInputPlan(runProfile, runSettings, true);
+            check(!plan.directions[3] && !plan.directions[0] && !plan.directions[2], "profession and combo triggers override run directions");
+            check(plan.directions[1] == parseKey(L"Down").descriptor(), "an unplayable combo does not take a direction");
+            check(plan.refreshKeys[parseKey(L"X").physical_id()] && plan.refreshKeys[parseKey(L"S").physical_id()]
+                && plan.refreshKeys[parseKey(L"Right").physical_id()], "autofire and profession keys recover runs");
+            check(!plan.refreshKeys[parseKey(L"Z").physical_id()], "a profession output key is not a recovery trigger");
+            check(runKeyOverride(runProfile, L"Right") && runKeyOverride(runProfile, L"Left") && !runKeyOverride(runProfile, L"Down"),
+                "UI explains overridden directions");
+            runProfile.jianZong = false; runProfile.lvRen = false;
+            plan = makeInputPlan(runProfile, runSettings, true);
+            check(plan.directions[3] && plan.directions[0], "disabled professions release their keys to running");
+            check(!makeInputPlan(runProfile, runSettings, false).running, "stopped autofire never runs");
+        }
 
         Profile aliases;
         aliases.name = L"旧版别名";

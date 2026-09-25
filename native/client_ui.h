@@ -42,7 +42,12 @@ public:
     bool start(bool saveFirst = true);
     bool stop();
     void toggle();
-    void toggleRun();
+    // Hotkey (game = the foreground DNF window) or tray menu: toggle, then show the
+    // in-game notice in the bottom-right corner of the game (never takes focus).
+    void togglePower(HWND game = nullptr);
+    void toggleRun(HWND game = nullptr);
+    HWND noticeWindow() const;       // Tests: the notice window,
+    std::wstring noticeText() const; // and what it last said ("title · detail").
     void setRunning(bool running);
     void setStatus(const std::wstring& text);     // Error line in the footer.
     void showHint(const std::wstring& text);      // Friendly (non-error) footer line.

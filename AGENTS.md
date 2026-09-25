@@ -6,7 +6,7 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本以根目录 `Version
 
 | 路径 | 内容 |
 | --- | --- |
-| `native/` | 全部源码。服务与配置：`json.*`（JSON 模型）、`win_fs.*`（原子写、配置锁）、`client_config.*` + `config_schema.h`（统一 config.json）、`config_migrate.*`（旧 config.ini / appsettings.json 一次性迁移）、`service_host.*`（`--service` 入口）、`game_monitor.*`、`launcher_monitor.*`、`process_util.*`、`service_control.*`（界面侧 SCM）、`service_log.*`、`client_ui_service.*`（服务管理抽屉与主界面服务状态胶囊、程序版本卡片）、`app_update.*` + `update_dialog.*`（已安装服务时原位更新程序）、`client_ui_picker.*`（进程选择浮层、程序与文件夹选择）、`game_toolbox.*` + `client_ui_toolbox.*`（游戏工具箱）、`client_ui_host.h`（抽屉控件接口）、`ui_motion.h`（过渡动画）、`app_ids.h`（服务名、跨会话事件名）、`version.h`（代码中唯一的版本来源，由 `scripts/bump-version.ps1` 写入，不要手改）。客户端：`client_main.cpp`（入口与模式分派、单实例、自检）、`client_ui.cpp`（交互与布局）、`client_gfx.cpp/.h`（D2D 绘制、SVG 图标、主题色）、`client_config.cpp/.h`（config.json 读写）、`client_input*.{h,cpp}`（奔跑/连招状态机）、`engine.cpp` + `schedule.h` + `win_timer.h`（连发调度引擎）、`client.rc`（图标、字体、版本资源）。架构说明见 `native/README.md`，基准见 `native/BENCHMARK.md` 与 `native/benchmark/` |
+| `native/` | 全部源码。服务与配置：`json.*`（JSON 模型）、`win_fs.*`（原子写、配置锁）、`client_config.*` + `config_schema.h`（统一 config.json）、`config_migrate.*`（旧 config.ini / appsettings.json 一次性迁移）、`service_host.*`（`--service` 入口）、`game_monitor.*`、`launcher_monitor.*`、`process_util.*`、`service_control.*`（界面侧 SCM）、`service_log.*`、`client_ui_service.*`（服务管理抽屉与主界面服务状态胶囊、程序版本卡片）、`app_update.*` + `update_dialog.*`（已安装服务时原位更新程序）、`client_ui_picker.*`（进程选择浮层、程序与文件夹选择）、`game_toolbox.*` + `client_ui_toolbox.*`（游戏工具箱）、`client_ui_host.h`（抽屉控件接口）、`ui_motion.h`（过渡动画）、`app_ids.h`（服务名、跨会话事件名）、`version.h`（代码中唯一的版本来源，由 `scripts/bump-version.ps1` 写入，不要手改）、`game_window.h`（识别 DNF 窗口，控制器与游戏内提示共用）。客户端：`client_main.cpp`（入口与模式分派、单实例、自检）、`client_ui.cpp`（交互与布局）、`client_gfx.cpp/.h`（D2D 绘制、SVG 图标、主题色）、`client_config.cpp/.h`（config.json 读写）、`client_input*.{h,cpp}`（奔跑/连招状态机）、`engine.cpp` + `schedule.h` + `win_timer.h`（连发调度引擎）、`client.rc`（图标、字体、版本资源）。架构说明见 `native/README.md`，基准见 `native/BENCHMARK.md` 与 `native/benchmark/` |
 | `native/icons/` | `app.ico`（资源 1，窗口/EXE）、`running.ico`（资源 2，托盘运行中）、`stopped.ico`（资源 3，托盘未启动） |
 | `native/fonts/` | 内置 Noto Sans SC / JetBrains Mono 子集（SIL OFL 1.1），以 RCDATA 201–207 编入 EXE |
 | `tests/` | `json_test.cpp`、`game_toolbox_test.cpp`、`client_config_test.cpp`、`config_migrate_test.cpp`、`service_logic_test.cpp`、`client_input_test.cpp`、`client_ui_test.cpp`、`native_schedule_test.cpp`、`app_update_test.cpp` + `legacy_client.cpp/.rc`（AHK 版替身）、`native_benchmark.cpp`，以及 `build_tools_test.ps1`、`release_security_test.ps1`、`client_singleton_test.ps1` |
@@ -32,7 +32,7 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本以根目录 `Version
 
 - 仿机械键盘：键帽右上角绿灯表示已开启连发，运行时呼吸闪烁；键帽底部色条表示占用（奔跑蓝、连招橙、剑宗紫），冲突亮红灯。明亮/暗黑两套主题色定义在 `client_gfx.cpp`（`capTop`、`capSide`、`line2`、`led` 等），主题保存在 `settings.theme`。
 - 窗口 1280×800 DIP 固定布局；界面文字用内置 Noto Sans SC，数字/键名用 JetBrains Mono。
-- 应用图标 = 深色键帽 + 浅色方波（连发时序）字符 + 右上角绿灯；托盘图标去掉字符，绿灯亮 = 运行中，灯灭 = 未启动。颜色取暗黑主题色板，16–32px 用简化几何。修改图标只改 `scripts/build-icons.py` 后重新生成（需 `pip install cairosvg pillow`），不要手工替换 `.ico`；资源编号 1/2/3 被 `client_ui.cpp` 的窗口类与托盘引用。
+- 应用图标 = 深色键帽 + 浅色方波（连发时序）字符 + 右上角绿灯；托盘图标去掉字符，绿灯 = 运行中，红灯 = 未启动（用户要求，与界面红绿灯一致；标题栏标志灯同步）。颜色取暗黑主题色板，16–32px 用简化几何。修改图标只改 `scripts/build-icons.py` 后重新生成（需 `pip install cairosvg pillow`），不要手工替换 `.ico`；资源编号 1/2/3 被 `client_ui.cpp` 的窗口类与托盘引用。
 - 新增界面元素沿用现有 token 与 SVG path 图标，不引入位图资源。
 - 状态灯语义统一：绿灯（`led`）= 运行中；黄灯（`ledWarn`）= 需要更新（服务注册在其他位置的 EXE、旧版服务待替换）；红灯（`ledBad`）= 未运行（服务未安装 / 已停止 / 状态读取失败，连发未启动时底栏与键盘指示区的“连发”灯）。服务状态由 `ServicePanel::summarize` 统一给出，主界面状态胶囊与服务抽屉共用 `ServicePanel::toneColor`。
 - 服务管理抽屉只从主界面“启动连发”开关左侧的“后台服务”状态胶囊打开，顶栏不再放服务按钮（顶栏只保留工具箱、主题、设置与窗口按钮）。
@@ -43,7 +43,9 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本以根目录 `Version
 - 旧 `config.ini` / `appsettings.json` / `appsettings.Development.json` 由 `migrateLegacyConfig` 在客户端和服务启动时迁移：只导入 `config.json` 中尚缺的部分；先写 `.migrating` 并用真实 `Store` 校验、再原子改名，成功后才删除旧文件；失败时不改动任何文件并在界面 / 日志说明。未知 INI 字段进入 `legacyIni`。不要重新引入 INI 写入或第二个配置文件。
 - 单实例使用固定 `Global\DNFAutoFire.Client.{B797BFB2-305A-44DC-9E06-76D6CC424419}` 互斥锁，不得改名；`--service` 模式不取该锁、不提权、不建窗口。重复启动时向已运行实例的主窗口投递注册消息 `kShowRunningMessage`（`client_ui.h`），由其显示主界面并给出“已在运行”提示；找不到窗口时静默退出码 0。
 - “运行后自动隐藏到托盘”（`SettingAutoStart`）默认开启：主窗口不显示、直接驻留托盘（不会一闪而过）；首次运行（尚无 config.json 与旧 config.ini）、刚从旧版配置迁移、更新后重新打开或自动启动失败时显示主界面。
-- 托盘右键菜单是 `client_ui.cpp` 自绘的弹出窗口（`DAF.Native.TrayMenu`），沿用主题 token，随明亮/暗黑切换；不要改回系统 `TrackPopupMenu`。
+- 托盘右键菜单是 `client_ui.cpp` 自绘的弹出窗口（`DAF.Native.TrayMenu`），沿用主题 token，随明亮/暗黑切换；不要改回系统 `TrackPopupMenu`。菜单项：启动/停止连发、一键奔跑（均为开关并显示热键）、快速切换方案、显示主界面、退出。
+- 游戏内热键（`client_input_plan.h` 的 `hotkeyAction`，按快速切换 → 连发开关 → 奔跑开关的顺序，一次按键只触发一个）：快速切换 `settings.quickSwitchHotkey`（默认 Alt+`，任何窗口）；连发总开关 `settings.powerHotkey`（默认 Alt+F12，用户决定只在 DNF 前台生效，精确修饰键，可清空关闭）；一键奔跑开关 `oneKeyRun.toggleHotkey`（默认 F10，DNF 前台且连发运行时，额外修饰键也触发）。后两者在游戏中被吞掉不传给 DNF。三者由 `hotkeysClash` 互相校验冲突。
+- 游戏内提示（用户要求）：热键或托盘开关连发 / 奔跑、快速切换启动后，在 DNF 窗口客户区右下角（找不到游戏窗口时为鼠标所在屏幕工作区右下角）显示约 2.2 秒的卡片（`DAF.Native.Notice`，暗色主题，绿灯开启 / 红灯关闭）。必须是本进程自己的窗口，不得注入或绘制到游戏；必须 `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW`、`SW_SHOWNOACTIVATE`，不得抢焦点或拦截鼠标（用户明确要求不能把玩家切出游戏）。主界面上的点击开关不弹提示。
 - 服务（来自原 AutoManagerProcess，边界保持不变）：服务名 `DNFAutoFire`，LocalSystem、自动启动、异常退出自动重启；安装 / 更新时必须先停止并删除旧服务 `DNFProcessManager`、`AutoManagerProcess`，避免两套自动化同时运行。不得写死游戏安装路径（从运行中的 `DNF.exe` 获取会话）；游戏优先级只允许 Normal / AboveNormal；Kill 列表只结束目标进程本身，不结束进程树；随游戏启动的程序必须经 `WTSQueryUserToken` + `CreateProcessAsUserW` 启动到游戏会话，不得在会话 0 直接启动 GUI；游戏退出后关闭连发时先置位 `Global\DNFAutoFire.Client.Quit.{…}` 让客户端自行释放按键，5 秒后才强制结束；启动器只在同会话运行过游戏并退出满一分钟后、通过全部身份校验才结束，且不得影响下载 / 更新。服务名、跨会话事件名定义在 `app_ids.h`。服务运行时占用 EXE、无法删除 / 移动，资源管理器“文件正在使用”提示按服务显示名称显示占用者，所以显示名称本身写明“删除或移动程序前：打开连发 → 后台服务 → 卸载”，服务说明给出完整步骤与 `sc` 命令；服务每次启动经 `svcctl::refreshLabels` 刷新这两项（文件替换式更新后旧注册也能更新）。修改措辞时同步 README 与操作手册常见问题。
 - 游戏工具箱（原 `DNF专用工具箱8.0.bat`，`game_toolbox.*` + `client_ui_toolbox.*`）只在客户端界面中由用户操作，不得放进服务自动执行。备份后缀 `.dnf-toolbox-disabled`、标记 `.blocked-by-dnf-toolbox` 与 8.0 脚本保持一致，禁用 / 恢复必须成对、可重复，并能恢复脚本先前的处理结果；只删除带标记的占位目录，不能把用户原有目录当作占位；文件操作前必须确认 DNF 已关闭；不得处理下载与更新组件（BackgroundDownloader、Tencentdl、TenioDL、TesService、QQDownload、QQMiniDL、DeskUpdate、TXPTOP、TXFTN）。游戏根目录按“config.json 记住的目录 → 运行中的 DNF.exe → DNF 启动器 → 注册表 → 常见安装位置”识别，失败时由用户选择包含 DNF.exe 的目录，结果保存在 `toolbox.gameDirectory`。
 - 界面过渡动画统一走 `ui_motion.h` 的 `Motion`（按 key 缓动、首次出现不动画、遵循系统“动画效果”开关）；有动画进行时才以 15ms 帧定时器重绘，静止时停止。淡出 / 滑出中的内容不得接受点击。
@@ -53,12 +55,13 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本以根目录 `Version
 - 旧版组合（AHK 连发 v0.1.3.x + .NET 服务 DNFProcessManager + config.ini / appsettings.json）：按版本名 `DAF连发工具` 与 `AutoHotkey` 主窗口识别 AHK 版，按旧服务注册路径与其 AutoStart 找到目标；AHK 版先 `WM_CLOSE` 再宽限结束（含其 `/Run=` 子进程）；旧版配置只由 `migrateLegacyConfig` 在 `config.json` 校验成功后删除；用户已决定升级后删除旧服务程序、`服务管理.bat`、`DNF专用工具箱8.0.bat`、`appsettings.Development.json`、`logs\auto-manager*.log`，但只在旧服务确认删除后、且 bat 内容匹配（`DNFProcessManager` / `dnf-toolbox-disabled`）时删除，服务程序只认 `DNFProcessManager.exe` / `AutoManagerProcess.exe`，其他文件一律不动。AHK 版运行时新版不得同时启动。
 - 自动回归不得安装真实服务或修改真实游戏目录；`service_logic_test` 只用自身子进程副本模拟游戏生命周期。
 - 连发默认 7+7ms，低于 7ms 时界面提示“偏快”；一键奔跑搓招保护默认 150ms，低于 150ms 时界面提示。连发按下/抬起与奔跑搓招保护/双击间隔/按键脉冲仅要求正整数毫秒，不按建议值硬性限制范围；显式自定义值（含 180/200/350ms）原样保留，换算为微秒使用 64 位并防止步进溢出；两/三键 0/8/16ms 相位。所有注入输入按 `LLKHF_INJECTED` 排除；只在 DNF 前台生效；不读写游戏内存、不联网、不记录键盘文本。
+- 一键奔跑（用户已决定）：同一时刻只允许一个方向执行双击，输入不变时输出不得再变化；两个相反方向同时按住时后按的生效；玩家自己的快速双击（第一下 ≤250ms、间隔 ≤200ms）视为已起跑；任何非方向键都结束奔跑——托管技能（手动连发键、已启用的职业触发键、连招）全部松开且连招结束后立即补双击恢复，其他键松开后按搓招保护重新起跑；可玩连招的触发键与已启用职业触发键优先于同键的奔跑方向；游戏内开关 / 快速切换时交接仍按住的键，切换到安全桌面视为全部抬起。修改 `client_input_model.h` 必须保持 `client_input_test` 的穷举不变量通过。
 
 ## 版本号
 
 - 每次代码更新后版本号自动递增（用户要求）：`build.ps1` 调用 `scripts/bump-version.ps1 -IfSourcesChanged`，编进 EXE 的源码（`native/` 下 .cpp/.h/.rc/.manifest、图标、字体；不含 `version.h` 与 manifest 自身的版本号，文本去掉 CR 后计算）与 `native/version.h` 中 `source-sha256` 指纹不同时，第四位加一并同步写入 `Version` 的 `tag_name`、`native/version.h`、`native/client.manifest`；源码未变不加，编译失败退回原版本号。CI 与 `-NoVersionBump` 只做 `-Check`（三处不一致即失败，指纹过期只警告）。
 - 改完代码后必须至少运行一次 `build.ps1`（或 `bump-version.ps1 -IfSourcesChanged`），让版本号和指纹随代码一起提交；不要手改 `version.h`、manifest 或 `tag_name` 中的版本号。升级前三位用 `bump-version.ps1 -Set <a.b.c.d>`。
-- `version.h` 是代码中唯一的版本来源：`client.rc` 版本资源、`app_ids.h` 的 `kProductVersion`、`client_ui.cpp` 的 `kVersion`/`kFullVersion` 都取自它；`build.ps1` 输出目录与 `publish.ps1` 默认版本读取 `Version`。
+- `version.h` 是代码中唯一的版本来源：`client.rc` 版本资源、`app_ids.h` 的 `kProductVersion`、`client_ui.cpp` 的 `kFullVersion`（标题栏与关于卡片都显示完整四段版本）都取自它；`build.ps1` 输出目录与 `publish.ps1` 默认版本读取 `Version`。
 - `Version` 的 `body` 累积自上次发布以来的更新说明，`README.md` 更新日志按发布版本记录；发布时推送与 `Version` 一致的 v* 标签。`README.md` 与 `Version` 使用 CRLF 换行（脚本只改 `tag_name`，保留原有换行）。
 
 ## 安全软件
