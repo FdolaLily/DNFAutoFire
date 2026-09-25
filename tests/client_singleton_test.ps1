@@ -7,6 +7,9 @@ $null = New-Item -ItemType Directory -Path $testDir
 $copy = Join-Path $testDir 'RenamedClient.exe'
 Copy-Item -LiteralPath $clientPath -Destination $copy
 $mutex = $null
+# A developer PC may have the service installed for another copy; the duplicates
+# under test must not stop at the "update the installed program?" question.
+$env:DAF_UPDATE_PROMPT = '0'
 try {
     # Same product identity as the legacy and native clients. This guard creates
     # no client window/hook and holds no ownership lock; it models a live client.
@@ -22,6 +25,7 @@ try {
     }
     Write-Output 'PASS: native original and renamed cross-directory copies exit before elevation when product mutex exists.'
 } finally {
+    Remove-Item Env:DAF_UPDATE_PROMPT -ErrorAction SilentlyContinue
     if ($mutex) { $mutex.Dispose() }
     if (Test-Path -LiteralPath $copy) { Remove-Item -LiteralPath $copy -Force }
     Remove-Item -LiteralPath $testDir

@@ -1,5 +1,6 @@
 // Native client resources, UTF-8 source.
 #pragma code_page(65001)
+#include "version.h"
 1 24 "client.manifest"
 // App icon and tray states (running / stopped); regenerate with scripts/build-icons.py.
 1 ICON "icons/app.ico"
@@ -14,8 +15,8 @@
 206 RCDATA "fonts/JetBrainsMono-SemiBold.ttf"
 207 RCDATA "fonts/JetBrainsMono-Bold.ttf"
 1 VERSIONINFO
-FILEVERSION 0,2,0,0
-PRODUCTVERSION 0,2,0,0
+FILEVERSION DAF_VERSION_MAJOR,DAF_VERSION_MINOR,DAF_VERSION_PATCH,DAF_VERSION_BUILD
+PRODUCTVERSION DAF_VERSION_MAJOR,DAF_VERSION_MINOR,DAF_VERSION_PATCH,DAF_VERSION_BUILD
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -24,12 +25,12 @@ BEGIN
   BLOCK "080404B0"
   BEGIN
    VALUE "CompanyName", "DNFAutoFire project\0"
-   VALUE "FileDescription", "DNF 连发工具 - 原生 Windows 客户端\0"
-   VALUE "FileVersion", "0.2.0.0\0"
+   VALUE "FileDescription", "DNF 连发工具 - 连发与服务管理终端\0"
+   VALUE "FileVersion", DAF_VERSION_STRING
    VALUE "InternalName", "DNFAutoFire\0"
    VALUE "OriginalFilename", "DNFAutoFire.exe\0"
    VALUE "ProductName", "DNFAutoFire\0"
-   VALUE "ProductVersion", "0.2.0.0\0"
+   VALUE "ProductVersion", DAF_VERSION_STRING
   END
  END
  BLOCK "VarFileInfo"

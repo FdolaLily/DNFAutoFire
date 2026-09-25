@@ -181,6 +181,10 @@ const wchar_t* iconPath(Icon icon) {
     case Icon::ArrowRight: return L"M5 12h14M13 6l6 6-6 6";
     case Icon::Check: return L"M5 12.5l4.5 4.5L19 7.5";
     case Icon::Clock: return L"M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0M12 8v4l2.5 2";
+    case Icon::Lock: return L"M7 11V8a5 5 0 0 1 10 0v3"; // shackle only; callers fill the body so it stays legible at 12-14px
+    case Icon::Wrench: return L"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z";
+    case Icon::Folder: return L"M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z";
+    case Icon::Refresh: return L"M20 11a8 8 0 0 0-14.8-4M4 5v4h4M4 13a8 8 0 0 0 14.8 4M20 19v-4h-4";
     }
     return L"";
 }
@@ -201,6 +205,7 @@ const Theme& darkTheme() {
         x.modTop = rgb(0x1D2126); x.modSide = rgb(0x15181C); x.modTopH = rgb(0x242A31); x.modLegend = rgb(0xA1A9B3);
         x.led = rgb(0x3BE38B); x.ledGlow = rgb(0x3BE38B, .65f); x.ledRing = rgb(0x3BE38B, .28f); x.ledOff = rgb(0x353B43);
         x.ledBad = rgb(0xFF5D5D); x.ledBadGlow = rgb(0xFF5D5D, .6f); x.danger = rgb(0xFF6B6B);
+        x.ledWarn = rgb(0xF5C542); x.ledWarnGlow = rgb(0xF5C542, .6f);
         x.accent = rgb(0x3BE38B); x.onAccent = rgb(0x05140B); x.accentSoft = rgb(0x3BE38B, .13f); x.accentText = rgb(0x5BEA9F);
         x.run = rgb(0x4D9CFF); x.runSoft = rgb(0x4D9CFF, .16f); x.combo = rgb(0xFF9E45); x.comboSoft = rgb(0xFF9E45, .15f);
         x.cls = rgb(0xB08CFF); x.scrim = rgb(0x030507, .6f); x.shadow = rgb(0x000000, .55f); x.focus = rgb(0x7CB8FF);
@@ -219,6 +224,7 @@ const Theme& lightTheme() {
         x.modTop = rgb(0xE3E7EB); x.modSide = rgb(0xC2C9D0); x.modTopH = rgb(0xD9DEE3); x.modLegend = rgb(0x454D56);
         x.led = rgb(0x16C466); x.ledGlow = rgb(0x16C466, .6f); x.ledRing = rgb(0x16C466, .3f); x.ledOff = rgb(0xBCC3CA);
         x.ledBad = rgb(0xE5484D); x.ledBadGlow = rgb(0xE5484D, .5f); x.danger = rgb(0xC62F34);
+        x.ledWarn = rgb(0xE0A800); x.ledWarnGlow = rgb(0xE0A800, .5f);
         x.accent = rgb(0x0E8743); x.onAccent = rgb(0xFFFFFF); x.accentSoft = rgb(0x0E8743, .11f); x.accentText = rgb(0x0B7039);
         x.run = rgb(0x1D66D6); x.runSoft = rgb(0x1D66D6, .11f); x.combo = rgb(0xC0650A); x.comboSoft = rgb(0xC0650A, .12f);
         x.cls = rgb(0x6E43D8); x.scrim = rgb(0x12161A, .26f); x.shadow = rgb(0x18222C, .2f); x.focus = rgb(0x1D66D6);
@@ -334,8 +340,12 @@ bool Canvas::begin(Color clear) {
     target_->BeginDraw();
     target_->SetTransform(D2D1::Matrix3x2F::Identity());
     target_->Clear(D2D1::ColorF(clear.r, clear.g, clear.b, 1.f));
-    opacity_ = 1.f;
+    opacity_ = 1.f; layer_ = 1.f; dx_ = dy_ = 0.f;
     return true;
+}
+void Canvas::setLayer(float opacity, float dx, float dy) {
+    layer_ = std::clamp(opacity, 0.f, 1.f); dx_ = dx; dy_ = dy;
+    if (target_) target_->SetTransform(D2D1::Matrix3x2F::Translation(dx_, dy_));
 }
 
 void Canvas::end() {
@@ -345,7 +355,7 @@ void Canvas::end() {
 }
 
 ID2D1SolidColorBrush* Canvas::brush(Color c) {
-    brush_->SetColor(D2D1::ColorF(c.r, c.g, c.b, c.a * opacity_));
+    brush_->SetColor(D2D1::ColorF(c.r, c.g, c.b, c.a * opacity_ * layer_));
     return brush_;
 }
 
@@ -421,9 +431,9 @@ void Canvas::icon(Icon icon, float x, float y, float size, Color c) { if (muted_
     ID2D1Geometry* geometry = iconGeometry(icon);
     if (!geometry || c.a <= 0) return;
     const float s = size / 24.f;
-    target_->SetTransform(D2D1::Matrix3x2F::Scale(s, s) * D2D1::Matrix3x2F::Translation(x, y));
+    target_->SetTransform(D2D1::Matrix3x2F::Scale(s, s) * D2D1::Matrix3x2F::Translation(x + dx_, y + dy_));
     target_->DrawGeometry(geometry, brush(c), 1.7f, roundStroke_);
-    target_->SetTransform(D2D1::Matrix3x2F::Identity());
+    target_->SetTransform(D2D1::Matrix3x2F::Translation(dx_, dy_));
 }
 
 IDWriteTextFormat* Canvas::format(const Font& font) {

@@ -5,11 +5,11 @@
 #include <algorithm>
 #include <climits>
 #include <cwctype>
-#include <filesystem>
-#include <fstream>
 #include <map>
-#include <sstream>
 #include <stdexcept>
+#include "config_schema.h"
+#include "json.h"
+#include "win_fs.h"
 
 namespace dafclient {
 namespace {
@@ -98,147 +98,6 @@ void checkName(const std::wstring& value) {
     if (trim(value).empty() || value.find_first_of(L"[]|") != value.npos)
         throw std::runtime_error("Invalid profile name.");
 }
-std::wstring sectionName(const std::wstring& line) {
-    const auto text = trim(line);
-    if (text.size() >= 2 && text.front() == L'[' && text.back() == L']') return trim(text.substr(1, text.size() - 2));
-    return L"";
-}
-std::wstring decode(const std::string& bytes) {
-    if (bytes.size() >= 2 && (static_cast<unsigned char>(bytes[0]) == 0xff || static_cast<unsigned char>(bytes[0]) == 0xfe)) {
-        const bool le = static_cast<unsigned char>(bytes[0]) == 0xff && static_cast<unsigned char>(bytes[1]) == 0xfe;
-        const bool be = static_cast<unsigned char>(bytes[0]) == 0xfe && static_cast<unsigned char>(bytes[1]) == 0xff;
-        if (le || be) {
-            if (bytes.size() % 2) throw std::runtime_error("Truncated UTF-16 configuration.");
-            std::wstring text;
-            for (size_t i = 2; i < bytes.size(); i += 2) {
-                const auto a = static_cast<unsigned char>(bytes[i]), b = static_cast<unsigned char>(bytes[i + 1]);
-                text += static_cast<wchar_t>(le ? a | (b << 8) : b | (a << 8));
-            }
-            return text;
-        }
-    }
-    size_t start = bytes.compare(0, 3, "\xef\xbb\xbf") == 0 ? 3 : 0;
-    if (bytes.size() == start) return L"";
-    UINT cp = CP_UTF8;
-    int count = MultiByteToWideChar(cp, MB_ERR_INVALID_CHARS, bytes.data() + start, static_cast<int>(bytes.size() - start), nullptr, 0);
-    if (!count) { cp = CP_ACP; count = MultiByteToWideChar(cp, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0); start = 0; }
-    if (!count) throw std::runtime_error("Cannot decode configuration.");
-    std::wstring text(static_cast<size_t>(count), L'\0');
-    MultiByteToWideChar(cp, 0, bytes.data() + start, static_cast<int>(bytes.size() - start), text.data(), count);
-    return text;
-}
-class Ini {
-public:
-    explicit Ini(const std::wstring& path) : path_(path) {
-        const DWORD attributes = GetFileAttributesW(path.c_str());
-        if (attributes == INVALID_FILE_ATTRIBUTES) {
-            const auto error = GetLastError();
-            if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return;
-            throw std::runtime_error("Cannot inspect configuration.");
-        }
-        std::ifstream file(std::filesystem::path(path), std::ios::binary);
-        if (!file) throw std::runtime_error("Cannot read configuration.");
-        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        if (bytes.size() > 4 * 1024 * 1024) throw std::runtime_error("Configuration is too large.");
-        std::wistringstream input(decode(bytes));
-        std::wstring line;
-        while (std::getline(input, line)) { if (!line.empty() && line.back() == L'\r') line.pop_back(); lines_.push_back(line); }
-    }
-    std::wstring get(const std::wstring& section, const std::wstring& key, const std::wstring& fallback = L"") const {
-        bool active = false;
-        for (const auto& line : lines_) {
-            const auto name = sectionName(line);
-            if (!name.empty()) { active = equal(name, section); continue; }
-            if (!active) continue;
-            const auto text = trim(line);
-            if (text.empty() || text.front() == L';' || text.front() == L'#') continue;
-            const auto separator = text.find(L'=');
-            if (separator != text.npos && equal(trim(text.substr(0, separator)), key)) {
-                auto value = trim(text.substr(separator + 1));
-                if (value.size() >= 2 && ((value.front() == L'"' && value.back() == L'"') || (value.front() == L'\'' && value.back() == L'\'')))
-                    value = value.substr(1, value.size() - 2);
-                return value;
-            }
-        }
-        return fallback;
-    }
-    unsigned num(const std::wstring& section, const std::wstring& key, unsigned fallback, unsigned low, unsigned high) const {
-        return number(get(section, key), fallback, low, high);
-    }
-    void set(const std::wstring& section, const std::wstring& key, const std::wstring& value) {
-        checkLine(value);
-        bool active = false, found = false;
-        size_t insert = lines_.size();
-        for (size_t i = 0; i < lines_.size(); ++i) {
-            const auto name = sectionName(lines_[i]);
-            if (!name.empty()) {
-                if (active) { insert = i; break; }
-                active = equal(name, section); found = found || active; continue;
-            }
-            const auto text = trim(lines_[i]);
-            const auto separator = text.find(L'=');
-            if (active && separator != text.npos && equal(trim(text.substr(0, separator)), key)) {
-                lines_[i] = key + L"=" + value; return;
-            }
-        }
-        if (!found) { lines_.push_back(L"[" + section + L"]"); insert = lines_.size(); }
-        lines_.insert(lines_.begin() + static_cast<std::ptrdiff_t>(insert), key + L"=" + value);
-    }
-    void set(const std::wstring& section, const std::wstring& key, unsigned value) { set(section, key, std::to_wstring(value)); }
-    std::vector<std::wstring> sections() const {
-        std::vector<std::wstring> result;
-        for (const auto& line : lines_) { const auto name = sectionName(line); if (!name.empty()) result.push_back(name); }
-        return result;
-    }
-    void rename(const std::wstring& source, const std::wstring& target) {
-        const auto names = sections();
-        if (!equal(source, target) && std::any_of(names.begin(), names.end(), [&](const std::wstring& n) { return equal(n, target); }))
-            throw std::runtime_error("Profile already exists.");
-        bool found = false;
-        for (auto& line : lines_) if (equal(sectionName(line), source)) { line = L"[" + target + L"]"; found = true; }
-        if (!found) throw std::runtime_error("Profile to rename does not exist.");
-    }
-    void remove(const std::wstring& section) {
-        bool active = false;
-        lines_.erase(std::remove_if(lines_.begin(), lines_.end(), [&](const std::wstring& line) {
-            const auto name = sectionName(line); if (!name.empty()) active = equal(name, section); return active;
-        }), lines_.end());
-    }
-    void clone(const std::wstring& source, const std::wstring& target) {
-        const auto names = sections();
-        if (std::any_of(names.begin(), names.end(), [&](const std::wstring& n) { return equal(n, target); }))
-            throw std::runtime_error("Profile already exists.");
-        bool active = false, found = false;
-        std::vector<std::wstring> copy;
-        for (const auto& line : lines_) {
-            const auto name = sectionName(line);
-            if (!name.empty()) { active = equal(name, source); if (active) { found = true; copy.push_back(L"[" + target + L"]"); } }
-            else if (active) copy.push_back(line);
-        }
-        if (!found) throw std::runtime_error("Profile to clone does not exist.");
-        lines_.insert(lines_.end(), copy.begin(), copy.end());
-    }
-    void save() const {
-        std::wstring data(1, L'\xfeff');
-        for (const auto& line : lines_) data += line + L"\r\n";
-        const auto temporary = path_ + L".tmp." + std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetCurrentThreadId());
-        HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create configuration transaction.");
-        const DWORD size = static_cast<DWORD>(data.size() * sizeof(wchar_t));
-        DWORD written = 0;
-        const bool ok = WriteFile(file, data.data(), size, &written, nullptr) && written == size && FlushFileBuffers(file);
-        CloseHandle(file);
-        if (!ok || !MoveFileExW(temporary.c_str(), path_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            DeleteFileW(temporary.c_str()); throw std::runtime_error("Cannot commit configuration transaction.");
-        }
-    }
-private:
-    std::wstring path_;
-    std::vector<std::wstring> lines_;
-};
-const std::array<const wchar_t*, 4> directionFields{{L"OneKeyRunUpKey",L"OneKeyRunDownKey",L"OneKeyRunLeftKey",L"OneKeyRunRightKey"}};
-const std::wstring settingsSection = L"设置";
-const std::wstring profilePrefix = L"预设:";
 } // namespace
 
 Key parseKey(const std::wstring& name) {
@@ -332,7 +191,7 @@ std::wstring joinKeys(const std::vector<std::wstring>& keys) {
 
 std::vector<Combo> parseCombos(const std::wstring& text) {
     std::vector<Combo> result;
-    // Legacy representation remains the on-disk format for downgrade compatibility.
+    // Legacy "W>W,30;E,30|..." text from config.ini; config.json stores combos structurally.
     for (const auto& group : split(text, L'|')) {
         const auto separator = group.find(L'>');
         if (separator == group.npos || group.find(L'>', separator + 1) != group.npos) continue;
@@ -424,86 +283,359 @@ std::vector<Rule> buildRules(const Profile& profile, const Settings& settings) {
     }), filtered.keys.end());
     return buildRules(filtered);
 }
-Store::Store(std::wstring path) : path_(std::move(path)) {}
-Settings Store::loadSettings() const {
-    const Ini ini(path_); Settings s; const auto& section = settingsSection;
-    s.autoStart = ini.num(section,L"SettingAutoStart",1,0,1) != 0;
-    s.onSystemStart = ini.num(section,L"SettingOnSystemStart",0,0,1) != 0;
-    s.blockWin = ini.num(section,L"SettingBlockWin",0,0,1) != 0;
-    s.lastPreset = ini.get(section,L"LastPreset");
-    s.quickSwitchHotkey = ini.get(section,L"QuickChangeHotKey",s.quickSwitchHotkey);
-    s.oneKeyRun.enabled = ini.num(section,L"OneKeyRunState",0,0,1) != 0;
-    for (size_t i = 0; i < 4; ++i) s.oneKeyRun.keys[i] = ini.get(section,directionFields[i],s.oneKeyRun.keys[i]);
-    s.oneKeyRun.pressMs = ini.num(section,L"OneKeyRunPressDelay",30,1,1000);
-    s.oneKeyRun.gapMs = ini.num(section,L"OneKeyRunGapDelay",30,1,1000);
-    s.oneKeyRun.guardMs = ini.num(section,L"OneKeyRunGuardDelay",kDefaultGuardMs,kMinGuardMs,kMaxGuardMs);
-    // Historical AHK default values migrate to the current default, as OneKeyRunGetGuardDelay did.
-    if (s.oneKeyRun.guardMs == 350 || s.oneKeyRun.guardMs == 200 || s.oneKeyRun.guardMs == 180)
-        s.oneKeyRun.guardMs = kDefaultGuardMs;
-    s.oneKeyRun.toggleHotkey = ini.get(section,L"OneKeyRunToggleHotKey",L"F10");
-    s.theme = equal(ini.get(section,L"SettingTheme",L"dark"), L"light") ? L"light" : L"dark";
-    return s;
+
+// ---------------------------------------------------------------- config.json store
+namespace {
+using json::Value;
+const std::array<const wchar_t*, 4> directionNames{{L"up", L"down", L"left", L"right"}};
+constexpr size_t kMaxConfigBytes = 4 * 1024 * 1024;
+
+Value keysObject(const std::array<std::wstring, 4>& keys) {
+    Value object = Value::object();
+    for (size_t i = 0; i < 4; ++i) object.set(directionNames[i], keys[i]);
+    return object;
 }
-Profile Store::loadProfile(const std::wstring& name) const {
-    const Ini ini(path_); Profile p; p.name = name; const auto section = profilePrefix + name;
-    p.keys = splitKeys(ini.get(section,L"keys"));
-    p.downMs = ini.num(section,L"AutoFireDownMs",kDefaultFireMs,1,100);
-    p.upMs = ini.num(section,L"AutoFireUpMs",kDefaultFireMs,1,100);
-    p.lvRen = ini.num(section,L"LvRenState",0,0,1) != 0;
-    p.zhanFa = ini.num(section,L"ZhanFaState",0,0,1) != 0;
-    p.jianZong = ini.num(section,L"JianZongState",0,0,1) != 0;
-    p.combo = ini.num(section,L"ComboState",0,0,1) != 0;
-    p.lvRenShotKey = ini.get(section,L"LvRenShotKey",L"Z");
-    p.zhanFaShotKey = ini.get(section,L"ZhanFaShotKey");
-    p.jianZongSkillKey = ini.get(section,L"JianZongSkillKey",L"A");
-    p.lvRenSkillKeys = splitKeys(ini.get(section,L"LvRenSkillKeys"));
-    p.zhanFaSkillKeys = splitKeys(ini.get(section,L"ZhanFaSkillKeys"));
-    p.jianZongDelayMs = ini.num(section,L"JianZongDelay",200,1,10000);
-    p.usePresetRunKeys = ini.num(section,L"OneKeyRunUsePresetKeys",0,0,1) != 0;
-    for (size_t i = 0; i < 4; ++i) p.runKeys[i] = ini.get(section,directionFields[i],ini.get(settingsSection,directionFields[i],p.runKeys[i]));
-    p.combos = parseCombos(ini.get(section,L"combos"));
-    return p;
+std::wstring directionFrom(const Value& keys, size_t i, const std::wstring& fallback) {
+    const Value* value = keys.find(directionNames[i]);
+    return value && value->isString() ? value->str() : fallback;
 }
-std::vector<std::wstring> Store::presetNames() const {
-    const Ini ini(path_); std::vector<std::wstring> result;
-    for (const auto& section : ini.sections()) {
-        if (section.size() > profilePrefix.size() && section.rfind(profilePrefix,0) == 0) {
-            const auto name = section.substr(profilePrefix.size());
-            if (std::none_of(result.begin(),result.end(),[&](const std::wstring& n) { return equal(n,name); })) result.push_back(name);
+Value* findProfile(Value& root, const std::wstring& name) {
+    Value* profiles = root.find(L"profiles");
+    if (!profiles || !profiles->isArray()) return nullptr;
+    for (auto& item : profiles->items()) if (item.isObject() && equal(item.at(L"name").string(), name)) return &item;
+    return nullptr;
+}
+const Value* findProfile(const Value& root, const std::wstring& name) {
+    return findProfile(const_cast<Value&>(root), name);
+}
+Value& profileArray(Value& root) {
+    Value& profiles = root[L"profiles"];
+    if (!profiles.isArray()) profiles = Value::array();
+    return profiles;
+}
+// Writes known members into an object in place so unknown members survive.
+void writeSettings(Value& root, const Settings& s) {
+    Value& o = root[L"settings"];
+    if (!o.isObject()) o = Value::object();
+    o.set(L"autoStart", s.autoStart);
+    o.set(L"startWithWindows", s.onSystemStart);
+    o.set(L"blockWinKey", s.blockWin);
+    checkLine(s.lastPreset); o.set(L"lastProfile", s.lastPreset);
+    checkLine(s.quickSwitchHotkey); o.set(L"quickSwitchHotkey", s.quickSwitchHotkey);
+    o.set(L"theme", s.theme == L"light" ? L"light" : L"dark");
+    Value& run = o[L"oneKeyRun"];
+    if (!run.isObject()) run = Value::object();
+    run.set(L"enabled", s.oneKeyRun.enabled);
+    for (const auto& k : s.oneKeyRun.keys) checkLine(k);
+    run.set(L"keys", keysObject(s.oneKeyRun.keys));
+    run.set(L"pressMs", s.oneKeyRun.pressMs);
+    run.set(L"gapMs", s.oneKeyRun.gapMs);
+    run.set(L"guardMs", s.oneKeyRun.guardMs);
+    checkLine(s.oneKeyRun.toggleHotkey); run.set(L"toggleHotkey", s.oneKeyRun.toggleHotkey);
+}
+Value comboArray(const std::vector<Combo>& combos) {
+    Value items = Value::array();
+    for (const auto& combo : combos) {
+        const auto trigger = parseKey(combo.trigger);
+        if (!trigger) continue;
+        Value steps = Value::array();
+        unsigned count = 0;
+        for (const auto& step : combo.steps) {
+            if (!parseKey(step.key)) continue;
+            Value entry = Value::object();
+            entry.set(L"key", step.key);
+            entry.set(L"delayMs", std::min(step.intervalMs, 3600000u));
+            steps.push(std::move(entry));
+            if (++count == 5) break;
         }
+        if (!count) continue;
+        Value item = Value::object();
+        item.set(L"trigger", combo.trigger);
+        item.set(L"steps", std::move(steps));
+        items.push(std::move(item));
+    }
+    return items;
+}
+std::vector<Combo> combosFrom(const Value& items) {
+    std::vector<Combo> result;
+    if (!items.isArray()) return result;
+    for (const auto& item : items.items()) {
+        Combo combo{trim(item.at(L"trigger").string()), {}};
+        if (!parseKey(combo.trigger)) continue;
+        for (const auto& step : item.at(L"steps").items()) {
+            const auto key = trim(step.at(L"key").string());
+            if (!parseKey(key)) continue;
+            combo.steps.push_back({key, step.at(L"delayMs").integer(0, 0, 3600000)});
+            if (combo.steps.size() >= 5) break;
+        }
+        if (!combo.steps.empty()) result.push_back(std::move(combo));
     }
     return result;
 }
+void writeProfile(Value& o, const Profile& p) {
+    checkName(p.name);
+    for (const auto* list : {&p.keys, &p.lvRenSkillKeys, &p.zhanFaSkillKeys}) for (const auto& k : *list) checkLine(k);
+    o.set(L"name", p.name);
+    o.set(L"keys", Value::strings(p.keys));
+    o.set(L"downMs", p.downMs);
+    o.set(L"upMs", p.upMs);
+    const auto group = [&](const wchar_t* name) -> Value& { Value& g = o[name]; if (!g.isObject()) g = Value::object(); return g; };
+    Value& lv = group(L"lvRen");
+    lv.set(L"enabled", p.lvRen); lv.set(L"shotKey", p.lvRenShotKey); lv.set(L"skillKeys", Value::strings(p.lvRenSkillKeys));
+    Value& zf = group(L"zhanFa");
+    zf.set(L"enabled", p.zhanFa); zf.set(L"shotKey", p.zhanFaShotKey); zf.set(L"skillKeys", Value::strings(p.zhanFaSkillKeys));
+    Value& jz = group(L"jianZong");
+    jz.set(L"enabled", p.jianZong); jz.set(L"skillKey", p.jianZongSkillKey); jz.set(L"delayMs", p.jianZongDelayMs);
+    Value& combo = group(L"combo");
+    combo.set(L"enabled", p.combo); combo.set(L"items", comboArray(p.combos));
+    Value& run = group(L"oneKeyRun");
+    run.set(L"useOwnKeys", p.usePresetRunKeys);
+    // A disabled override stays dormant on disk, exactly as the INI format behaved.
+    if (p.usePresetRunKeys) run.set(L"keys", keysObject(p.runKeys));
+}
+Value serviceObject(const ServiceOptions& s, Value o) {
+    if (!o.isObject()) o = Value::object();
+    o.set(L"gameProcess", s.gameProcess);
+    o.set(L"pollSeconds", s.pollSeconds);
+    o.set(L"actionDelaySeconds", s.actionDelaySeconds);
+    o.set(L"closeLauncherAfterGame", s.closeLauncherAfterGame);
+    o.set(L"optimizeGamePriority", s.optimizeGamePriority);
+    o.set(L"gamePriority", s.aboveNormalPriority ? L"AboveNormal" : L"Normal");
+    o.set(L"limit", Value::strings(s.limit));
+    o.set(L"kill", Value::strings(s.kill));
+    o.set(L"autoStart", Value::strings(s.autoStart));
+    o.set(L"autoStop", Value::strings(s.autoStop));
+    return o;
+}
+std::vector<std::wstring> cleanList(const Value& value, const std::vector<std::wstring>& fallback) {
+    if (!value.isArray()) return fallback;
+    std::vector<std::wstring> result;
+    for (auto item : value.stringList()) {
+        item = trim(item);
+        if (item.empty() || item.find_first_of(L"\r\n") != item.npos) continue;
+        if (std::none_of(result.begin(), result.end(), [&](const std::wstring& e) { return equal(e, item); })) result.push_back(item);
+    }
+    return result;
+}
+} // namespace
+
+bool ServiceOptions::operator==(const ServiceOptions& o) const {
+    return gameProcess == o.gameProcess && pollSeconds == o.pollSeconds && actionDelaySeconds == o.actionDelaySeconds &&
+        closeLauncherAfterGame == o.closeLauncherAfterGame && optimizeGamePriority == o.optimizeGamePriority &&
+        aboveNormalPriority == o.aboveNormalPriority && limit == o.limit && kill == o.kill && autoStart == o.autoStart && autoStop == o.autoStop;
+}
+
+namespace schema {
+void writeSettings(json::Value& root, const Settings& settings) { dafclient::writeSettings(root, settings); }
+void writeProfile(json::Value& profile, const Profile& model) {
+    if (!profile.isObject()) profile = json::Value::object();
+    dafclient::writeProfile(profile, model);
+}
+void writeDormantRunKeys(json::Value& profile, const std::array<std::wstring, 4>& keys) {
+    json::Value& run = profile[L"oneKeyRun"];
+    if (!run.isObject()) run = json::Value::object();
+    run.set(L"keys", keysObject(keys));
+}
+void writeService(json::Value& root, const ServiceOptions& options) {
+    const json::Value* existing = root.find(L"service");
+    root.set(L"service", serviceObject(normalizeService(options), existing ? *existing : json::Value::object()));
+}
+ServiceOptions normalizeService(ServiceOptions s) {
+    const ServiceOptions defaults;
+    s.gameProcess = trim(s.gameProcess);
+    if (s.gameProcess.empty() || s.gameProcess.find_first_of(L"\\/:*?\"<>|") != s.gameProcess.npos) s.gameProcess = defaults.gameProcess;
+    s.pollSeconds = std::clamp(s.pollSeconds, kMinPollSeconds, kMaxPollSeconds);
+    s.actionDelaySeconds = std::min(s.actionDelaySeconds, kMaxActionDelaySeconds);
+    for (auto* list : {&s.limit, &s.kill, &s.autoStart, &s.autoStop}) {
+        std::vector<std::wstring> clean;
+        for (auto item : *list) {
+            item = trim(item);
+            if (item.empty() || item.find_first_of(L"\r\n") != item.npos) continue;
+            if (std::none_of(clean.begin(), clean.end(), [&](const std::wstring& e) { return equal(e, item); })) clean.push_back(item);
+        }
+        *list = std::move(clean);
+    }
+    return s;
+}
+} // namespace schema
+
+struct Store::Cache {
+    Value document = Value::object();
+    fs::Stamp stamp;
+    bool loaded = false;
+    // Re-reads only when the file's metadata changed since the last read or write.
+    const Value& current(const std::wstring& path) {
+        const auto now = fs::stamp(path);
+        if (loaded && now == stamp) return document;
+        Value next = Value::object();
+        if (now.exists) {
+            try {
+                next = json::parse(fs::read(path, kMaxConfigBytes));
+            } catch (const json::ParseError& error) {
+                throw std::runtime_error(std::string("config.json is not valid JSON. ") + error.what());
+            }
+            if (!next.isObject()) throw std::runtime_error("config.json must contain a JSON object.");
+        }
+        document = std::move(next); stamp = now; loaded = true;
+        return document;
+    }
+    template <typename Fn> void mutate(const std::wstring& path, Fn&& change) {
+        fs::ConfigLock lock;
+        Value next = current(path);
+        if (!next.find(L"version")) next.members().insert(next.members().begin(), {L"version", Value(kConfigSchemaVersion)});
+        change(next);
+        fs::writeAtomic(path, json::serialize(next));
+        document = std::move(next);
+        stamp = fs::stamp(path);
+    }
+};
+
+Store::Store(std::wstring path) : path_(std::move(path)), cache_(new Cache) {}
+Store::~Store() = default;
+bool Store::changedOnDisk() const { return !cache_->loaded || fs::stamp(path_) != cache_->stamp; }
+
+Settings Store::loadSettings() const {
+    const Value& o = cache_->current(path_).at(L"settings");
+    Settings s;
+    s.autoStart = o.at(L"autoStart").boolean(true);
+    s.onSystemStart = o.at(L"startWithWindows").boolean(false);
+    s.blockWin = o.at(L"blockWinKey").boolean(false);
+    s.lastPreset = o.at(L"lastProfile").string();
+    s.quickSwitchHotkey = o.at(L"quickSwitchHotkey").string(s.quickSwitchHotkey);
+    s.theme = equal(o.at(L"theme").string(L"dark"), L"light") ? L"light" : L"dark";
+    const Value& run = o.at(L"oneKeyRun");
+    s.oneKeyRun.enabled = run.at(L"enabled").boolean(false);
+    for (size_t i = 0; i < 4; ++i) s.oneKeyRun.keys[i] = directionFrom(run.at(L"keys"), i, s.oneKeyRun.keys[i]);
+    s.oneKeyRun.pressMs = run.at(L"pressMs").integer(30, 1, 1000);
+    s.oneKeyRun.gapMs = run.at(L"gapMs").integer(30, 1, 1000);
+    s.oneKeyRun.guardMs = run.at(L"guardMs").integer(kDefaultGuardMs, kMinGuardMs, kMaxGuardMs);
+    // Historical AHK default values migrate to the current default, as OneKeyRunGetGuardDelay did.
+    if (s.oneKeyRun.guardMs == 350 || s.oneKeyRun.guardMs == 200 || s.oneKeyRun.guardMs == 180)
+        s.oneKeyRun.guardMs = kDefaultGuardMs;
+    s.oneKeyRun.toggleHotkey = run.at(L"toggleHotkey").string(L"F10");
+    return s;
+}
+Profile Store::loadProfile(const std::wstring& name) const {
+    const Value& root = cache_->current(path_);
+    Profile p; p.name = name;
+    const Value* found = findProfile(root, name);
+    static const Value empty = Value::object();
+    const Value& o = found ? *found : empty;
+    const Value& globalKeys = root.at(L"settings").at(L"oneKeyRun").at(L"keys");
+    p.keys = o.at(L"keys").stringList();
+    p.downMs = o.at(L"downMs").integer(kDefaultFireMs, 1, 100);
+    p.upMs = o.at(L"upMs").integer(kDefaultFireMs, 1, 100);
+    const Value& lv = o.at(L"lvRen");
+    p.lvRen = lv.at(L"enabled").boolean(false);
+    p.lvRenShotKey = lv.at(L"shotKey").string(L"Z");
+    p.lvRenSkillKeys = lv.at(L"skillKeys").stringList();
+    const Value& zf = o.at(L"zhanFa");
+    p.zhanFa = zf.at(L"enabled").boolean(false);
+    p.zhanFaShotKey = zf.at(L"shotKey").string();
+    p.zhanFaSkillKeys = zf.at(L"skillKeys").stringList();
+    const Value& jz = o.at(L"jianZong");
+    p.jianZong = jz.at(L"enabled").boolean(false);
+    p.jianZongSkillKey = jz.at(L"skillKey").string(L"A");
+    p.jianZongDelayMs = jz.at(L"delayMs").integer(200, 1, 10000);
+    const Value& combo = o.at(L"combo");
+    p.combo = combo.at(L"enabled").boolean(false);
+    p.combos = combosFrom(combo.at(L"items"));
+    const Value& run = o.at(L"oneKeyRun");
+    p.usePresetRunKeys = run.at(L"useOwnKeys").boolean(false);
+    for (size_t i = 0; i < 4; ++i) p.runKeys[i] = directionFrom(run.at(L"keys"), i, directionFrom(globalKeys, i, p.runKeys[i]));
+    return p;
+}
+std::vector<std::wstring> Store::presetNames() const {
+    std::vector<std::wstring> result;
+    for (const auto& item : cache_->current(path_).at(L"profiles").items()) {
+        const auto name = item.at(L"name").string();
+        if (trim(name).empty()) continue;
+        if (std::none_of(result.begin(), result.end(), [&](const std::wstring& n) { return equal(n, name); })) result.push_back(name);
+    }
+    return result;
+}
+ServiceOptions Store::loadService() const {
+    const Value& o = cache_->current(path_).at(L"service");
+    ServiceOptions s;
+    const auto game = trim(o.at(L"gameProcess").string());
+    if (!game.empty() && game.find_first_of(L"\\/:*?\"<>|") == game.npos) s.gameProcess = game;
+    s.pollSeconds = o.at(L"pollSeconds").integer(s.pollSeconds, kMinPollSeconds, kMaxPollSeconds);
+    s.actionDelaySeconds = o.at(L"actionDelaySeconds").integer(s.actionDelaySeconds, 0, kMaxActionDelaySeconds);
+    s.closeLauncherAfterGame = o.at(L"closeLauncherAfterGame").boolean(s.closeLauncherAfterGame);
+    s.optimizeGamePriority = o.at(L"optimizeGamePriority").boolean(s.optimizeGamePriority);
+    s.aboveNormalPriority = !equal(trim(o.at(L"gamePriority").string(L"AboveNormal")), L"Normal");
+    s.limit = cleanList(o.at(L"limit"), s.limit);
+    s.kill = cleanList(o.at(L"kill"), s.kill);
+    s.autoStart = cleanList(o.at(L"autoStart"), s.autoStart);
+    s.autoStop = cleanList(o.at(L"autoStop"), s.autoStop);
+    return s;
+}
 void Store::saveSettings(const Settings& s) const {
-    Ini ini(path_); const auto& section = settingsSection;
-    ini.set(section,L"SettingAutoStart",s.autoStart); ini.set(section,L"SettingOnSystemStart",s.onSystemStart);
-    ini.set(section,L"SettingBlockWin",s.blockWin); ini.set(section,L"LastPreset",s.lastPreset);
-    ini.set(section,L"QuickChangeHotKey",s.quickSwitchHotkey); ini.set(section,L"OneKeyRunState",s.oneKeyRun.enabled);
-    for (size_t i = 0; i < 4; ++i) ini.set(section,directionFields[i],s.oneKeyRun.keys[i]);
-    ini.set(section,L"OneKeyRunPressDelay",s.oneKeyRun.pressMs); ini.set(section,L"OneKeyRunGapDelay",s.oneKeyRun.gapMs);
-    ini.set(section,L"OneKeyRunGuardDelay",s.oneKeyRun.guardMs); ini.set(section,L"OneKeyRunToggleHotKey",s.oneKeyRun.toggleHotkey);
-    ini.set(section,L"SettingTheme",s.theme == L"light" ? L"light" : L"dark");
-    ini.save();
+    cache_->mutate(path_, [&](Value& root) { writeSettings(root, s); });
 }
 void Store::saveProfile(const Profile& p) const {
-    checkName(p.name); Ini ini(path_); const auto section = profilePrefix + p.name;
-    ini.set(section,L"keys",joinKeys(p.keys)); ini.set(section,L"AutoFireDownMs",p.downMs); ini.set(section,L"AutoFireUpMs",p.upMs);
-    ini.set(section,L"LvRenState",p.lvRen); ini.set(section,L"ZhanFaState",p.zhanFa); ini.set(section,L"JianZongState",p.jianZong);
-    ini.set(section,L"ComboState",p.combo); ini.set(section,L"LvRenShotKey",p.lvRenShotKey); ini.set(section,L"ZhanFaShotKey",p.zhanFaShotKey);
-    ini.set(section,L"JianZongSkillKey",p.jianZongSkillKey); ini.set(section,L"LvRenSkillKeys",joinKeys(p.lvRenSkillKeys));
-    ini.set(section,L"ZhanFaSkillKeys",joinKeys(p.zhanFaSkillKeys)); ini.set(section,L"JianZongDelay",p.jianZongDelayMs);
-    ini.set(section,L"OneKeyRunUsePresetKeys",p.usePresetRunKeys);
-    if (p.usePresetRunKeys) for (size_t i = 0; i < 4; ++i) ini.set(section,directionFields[i],p.runKeys[i]);
-    ini.set(section,L"combos",serializeCombos(p.combos)); ini.save();
+    checkName(p.name);
+    cache_->mutate(path_, [&](Value& root) {
+        if (Value* existing = findProfile(root, p.name)) { writeProfile(*existing, p); return; }
+        Value created = Value::object();
+        writeProfile(created, p);
+        profileArray(root).push(std::move(created));
+    });
+}
+void Store::save(const Profile& p, const Settings& s) const {
+    checkName(p.name);
+    cache_->mutate(path_, [&](Value& root) {
+        if (Value* existing = findProfile(root, p.name)) writeProfile(*existing, p);
+        else { Value created = Value::object(); writeProfile(created, p); profileArray(root).push(std::move(created)); }
+        writeSettings(root, s);
+    });
+}
+void Store::saveService(const ServiceOptions& s) const {
+    for (const auto* list : {&s.limit, &s.kill, &s.autoStart, &s.autoStop}) for (const auto& item : *list) checkLine(item);
+    checkLine(s.gameProcess);
+    cache_->mutate(path_, [&](Value& root) {
+        schema::writeService(root, s);
+    });
+}
+std::wstring Store::loadGameDirectory() const {
+    return cache_->current(path_).at(L"toolbox").at(L"gameDirectory").string();
+}
+void Store::saveGameDirectory(const std::wstring& directory) const {
+    checkLine(directory);
+    cache_->mutate(path_, [&](Value& root) {
+        Value& toolbox = root[L"toolbox"];
+        if (!toolbox.isObject()) toolbox = Value::object();
+        toolbox.set(L"gameDirectory", directory);
+    });
 }
 void Store::cloneProfile(const std::wstring& source, const std::wstring& newName) const {
-    checkName(source); checkName(newName); Ini ini(path_); ini.clone(profilePrefix + source,profilePrefix + newName); ini.save();
+    checkName(source); checkName(newName);
+    cache_->mutate(path_, [&](Value& root) {
+        if (findProfile(root, newName)) throw std::runtime_error("Profile already exists.");
+        const Value* original = findProfile(root, source);
+        if (!original) throw std::runtime_error("Profile to clone does not exist.");
+        Value copy = *original;
+        copy.set(L"name", newName);
+        profileArray(root).push(std::move(copy));
+    });
 }
 void Store::renameProfile(const std::wstring& name, const std::wstring& newName) const {
-    checkName(name); checkName(newName); Ini ini(path_); ini.rename(profilePrefix + name, profilePrefix + newName); ini.save();
+    checkName(name); checkName(newName);
+    cache_->mutate(path_, [&](Value& root) {
+        if (!equal(name, newName) && findProfile(root, newName)) throw std::runtime_error("Profile already exists.");
+        Value* profile = findProfile(root, name);
+        if (!profile) throw std::runtime_error("Profile to rename does not exist.");
+        profile->set(L"name", newName);
+    });
 }
 void Store::deleteProfile(const std::wstring& name) const {
-    checkName(name); Ini ini(path_); ini.remove(profilePrefix + name); ini.save();
+    checkName(name);
+    cache_->mutate(path_, [&](Value& root) {
+        auto& items = profileArray(root).items();
+        items.erase(std::remove_if(items.begin(), items.end(), [&](const Value& item) {
+            return item.isObject() && equal(item.at(L"name").string(), name);
+        }), items.end());
+    });
 }
 static_assert(sizeof(Rule) == 132 * sizeof(unsigned), "Engine rule ABI mismatch");
 } // namespace dafclient

@@ -47,7 +47,9 @@ $delayRva = [BitConverter]::ToUInt32($bytes, $directoryOffset + 13 * 8)
 if ($delayRva) { throw 'Unexpected delay imports require explicit review' }
 $unexpected = @($imports | Where-Object {
     $_ -notmatch '^(KERNEL32|USER32|WINMM)\.dll$' -and $_ -notmatch '^api-ms-win-crt-[a-z0-9-]+\.dll$' -and
-    !($Client -and $_ -match '^(ADVAPI32|COMCTL32|GDI32|OLE32|SHELL32|D2D1|DWRITE|DWMAPI)\.dll$')
+    # WTSAPI32 / USERENV: the service starts the client in the game's user session
+    # (WTSQueryUserToken, CreateEnvironmentBlock). Both ship with every Windows edition.
+    !($Client -and $_ -match '^(ADVAPI32|COMCTL32|GDI32|OLE32|SHELL32|D2D1|DWRITE|DWMAPI|WTSAPI32|USERENV)\.dll$')
 })
 if ($unexpected.Count) { throw "Unexpected runtime dependencies: $($unexpected -join ', ')" }
 $result = [ordered]@{

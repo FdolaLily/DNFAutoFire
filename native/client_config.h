@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -64,19 +65,56 @@ std::vector<Rule> buildRules(const Profile& profile);
 std::vector<Rule> buildRules(const Profile& profile, const Settings& settings);
 RunSettings resolveRunSettings(const Profile& profile, const Settings& settings);
 
+// Windows service options (formerly appsettings.json "Manager"). Relative paths in
+// autoStart resolve against the EXE directory; names match with or without ".exe".
+struct ServiceOptions {
+    std::wstring gameProcess = L"DNF.exe";
+    unsigned pollSeconds = 2;          // 1–60
+    unsigned actionDelaySeconds = 60;  // 0–3600
+    bool closeLauncherAfterGame = true;
+    bool optimizeGamePriority = true;
+    bool aboveNormalPriority = true;   // Only Normal / AboveNormal are ever applied.
+    std::vector<std::wstring> limit{L"SGuard64.exe", L"SGuardSvc64.exe", L"CrossProxy.exe"};
+    std::vector<std::wstring> kill{L"GameLoader.exe", L"TXPlatform.exe"};
+    std::vector<std::wstring> autoStart{L"DNFAutoFire.exe"};
+    std::vector<std::wstring> autoStop{L"DNFAutoFire.exe"};
+    bool operator==(const ServiceOptions& o) const;
+    bool operator!=(const ServiceOptions& o) const { return !(*this == o); }
+};
+constexpr unsigned kMinPollSeconds = 1, kMaxPollSeconds = 60, kMaxActionDelaySeconds = 3600;
+
+// The single configuration file next to the EXE. Legacy config.ini / appsettings.json
+// are imported once by config_migrate and then removed.
+constexpr wchar_t kConfigFileName[] = L"config.json";
+constexpr unsigned kConfigSchemaVersion = 1;
+
+// config.json backed store. The parsed document is cached and re-read only when the
+// file's size or write time changes; every save is an atomic replace under a machine-wide
+// lock, and members this version does not understand are preserved.
 class Store {
 public:
     explicit Store(std::wstring path);
+    ~Store();
+    Store(const Store&) = delete;
+    Store& operator=(const Store&) = delete;
     Settings loadSettings() const;
     Profile loadProfile(const std::wstring& name) const;
     std::vector<std::wstring> presetNames() const;
+    ServiceOptions loadService() const;
     void saveSettings(const Settings& settings) const;
     void saveProfile(const Profile& profile) const;
+    void save(const Profile& profile, const Settings& settings) const; // One transaction.
+    void saveService(const ServiceOptions& options) const;
+    std::wstring loadGameDirectory() const;                  // toolbox.gameDirectory (game root chosen or detected).
+    void saveGameDirectory(const std::wstring& directory) const;
     void cloneProfile(const std::wstring& source, const std::wstring& newName) const;
     void renameProfile(const std::wstring& name, const std::wstring& newName) const; // Keeps its position.
     void deleteProfile(const std::wstring& name) const;
+    bool changedOnDisk() const; // Cheap metadata check; true when the next load re-reads.
     const std::wstring& path() const { return path_; }
 private:
+    struct Cache;
     std::wstring path_;
+    std::unique_ptr<Cache> cache_;
 };
 } // namespace dafclient

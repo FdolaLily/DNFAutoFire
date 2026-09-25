@@ -44,7 +44,9 @@ public:
     void toggle();
     void toggleRun();
     void setRunning(bool running);
-    void setStatus(const std::wstring& text);
+    void setStatus(const std::wstring& text);     // Error line in the footer.
+    void showHint(const std::wstring& text);      // Friendly (non-error) footer line.
+    void quit();                                  // Stop, release keys and leave the message loop.
     bool processMessage(MSG& message);
 
     // Semantic operations behind the mouse UI; also used by automated tests.
@@ -59,6 +61,13 @@ public:
     bool flush();                 // Commits a pending automatic save immediately.
     std::wstring status() const;  // Last status or error line shown in the footer.
     bool running() const;
+    // Service drawer (lists: 0 kill, 1 limit, 2 autoStart, 3 autoStop).
+    const ServiceOptions& serviceOptions() const;
+    bool addServiceItem(int list, const std::wstring& value);
+    bool removeServiceItem(int list, size_t index);   // False for the client's own autoStart entry.
+    bool flushService();
+    void openServicePage();
+    std::wstring serviceNotice() const;           // Non-empty while an old stand-alone service still runs.
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

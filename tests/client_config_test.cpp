@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include "../native/client_config.h"
+#include "../native/json.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -13,9 +14,7 @@ void check(bool value, const char* name) { ++checks; if (!value) throw std::runt
 std::wstring read(const std::wstring& path) {
     std::ifstream file(std::filesystem::path(path), std::ios::binary);
     const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    std::wstring text;
-    for (size_t i = 2; i + 1 < data.size(); i += 2) text += static_cast<wchar_t>(static_cast<unsigned char>(data[i]) | static_cast<unsigned char>(data[i + 1]) << 8);
-    return text;
+    return dafclient::json::widen(data);
 }
 }
 int main(int argc, char** argv) {
@@ -44,42 +43,71 @@ int main(int argc, char** argv) {
         check(parseCombos(L"A>X,-5;Y,nonsense;Z,9999999999")[0].steps[2].intervalMs == 3600000, "combo delay bounds");
         check(parseCombos(L"bad|Q>X,0;bad,10|A>").size() == 1, "invalid combo discarded");
 
-        const auto path = std::filesystem::absolute(L"build/client-config-test-" + std::to_wstring(GetCurrentProcessId()) + L".ini").wstring();
+        const auto path = std::filesystem::absolute(L"build/client-config-test-" + std::to_wstring(GetCurrentProcessId()) + L".json").wstring();
         struct Cleanup { std::wstring path; ~Cleanup() { DeleteFileW(path.c_str()); } } cleanup{path};
-        // UTF-8 is accepted; subsequent atomic writes use AHK-compatible UTF-16LE.
+        // Hand-written config.json: unknown members at every level must survive saves.
         {
             std::ofstream file(std::filesystem::path(path), std::ios::binary);
-            file << u8"[设置]\nLastPreset=普通\nQuickChangeHotKey=!PgUp\nSettingAutoStart=1\nOneKeyRunState=1\nOneKeyRunToggleHotKey=PgDn\nUnknownGlobal=保留\n"
-                u8"[预设:]\nLvRenShotKey=G\n[预设:普通]\nkeys=X|Z|A|Num0\nAutoFireDownMs=7\nAutoFireUpMs=7\nUnknownProfile=still here\n"
-                u8"OneKeyRunUsePresetKeys=0\nOneKeyRunUpKey=W\n; keep comment\n[OtherTool]\nFuture=123\n";
+            file << u8R"({
+  "version": 1,
+  "settings": {"lastProfile": "普通", "quickSwitchHotkey": "!PgUp", "autoStart": true,
+    "oneKeyRun": {"enabled": true, "toggleHotkey": "PgDn", "futureRun": 5}, "unknownGlobal": "保留"},
+  "profiles": [
+    {"name": "", "lvRen": {"shotKey": "G"}},
+    {"name": "普通", "keys": ["X", "Z", "A", "Num0"], "downMs": 7, "upMs": 7, "unknownProfile": "still here",
+     "oneKeyRun": {"useOwnKeys": false, "keys": {"up": "W"}}}
+  ],
+  "otherTool": {"future": 123}
+})";
         }
         Store store(path);
         auto settings = store.loadSettings(); auto profile = store.loadProfile(L"普通");
-        check(settings.lastPreset == L"普通" && settings.autoStart && settings.oneKeyRun.enabled, "Chinese section migration");
+        check(settings.lastPreset == L"普通" && settings.autoStart && settings.oneKeyRun.enabled, "settings loaded");
         check(settings.oneKeyRun.toggleHotkey == L"PgDn" && settings.quickSwitchHotkey == L"!PgUp", "existing hotkeys preserved");
         check(profile.keys == std::vector<std::wstring>{L"X",L"Z",L"A",L"Num0"} && profile.downMs == 7 && profile.upMs == 7, "current user's ordinary preset unchanged");
         check(settings.oneKeyRun.guardMs == 150, "missing guard delay defaults to 150ms");
         check(Settings{}.autoStart && Store(path + L".absent").loadSettings().autoStart, "auto-start to tray is on by default");
+        check(!std::filesystem::exists(path + L".absent"), "loading a missing file never creates it");
         const auto fresh = store.loadProfile(L"不存在的方案");
         check(fresh.downMs == 7 && fresh.upMs == 7 && Profile{}.downMs == 7 && Profile{}.upMs == 7, "new profiles default to 7+7ms");
-        check(store.presetNames() == std::vector<std::wstring>{L"普通"}, "exclude empty and unrelated sections");
+        check(store.presetNames() == std::vector<std::wstring>{L"普通"}, "exclude empty profile names");
         check(resolveRunSettings(profile,settings).keys[0] == L"Up", "disabled preset overrides use global directions");
         check(profile.runKeys[0] == L"W", "dormant preset override loaded");
         profile.runKeys[0] = L"A"; // Disabled editor values must not overwrite dormant override.
         store.saveProfile(profile); store.saveSettings(settings);
         check(store.loadProfile(L"普通").runKeys[0] == L"W", "dormant preset override preserved on save");
         const auto saved = read(path);
-        check(saved.find(L"UnknownGlobal=保留") != saved.npos && saved.find(L"UnknownProfile=still here") != saved.npos, "unknown properties preserved");
-        check(saved.find(L"[OtherTool]\r\nFuture=123") != saved.npos && saved.find(L"; keep comment") != saved.npos, "unknown sections and comments preserved");
-        check(store.loadSettings().quickSwitchHotkey == settings.quickSwitchHotkey, "UTF-16 reload");
+        check(saved.find(L"\"unknownGlobal\": \"保留\"") != saved.npos && saved.find(L"\"unknownProfile\": \"still here\"") != saved.npos, "unknown properties preserved");
+        check(saved.find(L"\"otherTool\"") != saved.npos && saved.find(L"\"futureRun\": 5") != saved.npos, "unknown sections preserved");
+        check(saved.find(L"\"version\": 1") != saved.npos, "schema version kept");
+        check(store.loadSettings().quickSwitchHotkey == settings.quickSwitchHotkey, "UTF-8 reload");
+        {
+            // A second Store instance sees writes made by the first one (file stamp changed).
+            const Store other(path);
+            check(other.loadProfile(L"普通").keys.size() == 4, "second reader loads saved document");
+            auto changed = settings; changed.blockWin = true; store.saveSettings(changed);
+            check(other.changedOnDisk() && other.loadSettings().blockWin, "cached reader re-reads after external write");
+            store.saveSettings(settings);
+        }
+        ServiceOptions service = store.loadService();
+        check(service == ServiceOptions{} && service.autoStart == std::vector<std::wstring>{L"DNFAutoFire.exe"}, "service defaults");
+        service.pollSeconds = 99; service.actionDelaySeconds = 5000; service.gameProcess = L"  bad/name  ";
+        service.kill = {L"a.exe", L" A.EXE ", L"", L"b.exe"}; service.aboveNormalPriority = false;
+        store.saveService(service);
+        const auto reloaded = store.loadService();
+        check(reloaded.pollSeconds == 60 && reloaded.actionDelaySeconds == 3600 && reloaded.gameProcess == L"DNF.exe", "service values clamped");
+        check(reloaded.kill == std::vector<std::wstring>{L"a.exe", L"b.exe"} && !reloaded.aboveNormalPriority, "service lists cleaned");
+        check(read(path).find(L"\"gamePriority\": \"Normal\"") != std::wstring::npos, "priority persisted by name");
+        check(store.loadProfile(L"普通").keys.size() == 4, "service save keeps profiles");
         store.cloneProfile(L"普通",L"克隆");
         check(store.loadProfile(L"克隆").keys == profile.keys, "clone known properties");
-        check(read(path).find(L"[预设:克隆]") != std::wstring::npos, "clone section exists");
+        check(read(path).find(L"\"name\": \"克隆\"") != std::wstring::npos, "clone object exists");
+        check(read(path).find(L"still here") != read(path).rfind(L"still here"), "clone copies unknown members");
         bool duplicate = false; try { store.cloneProfile(L"普通",L"克隆"); } catch (...) { duplicate = true; }
         check(duplicate, "clone cannot overwrite existing profile");
         store.deleteProfile(L"克隆"); check(store.presetNames().size() == 1, "delete only target profile");
         bool badName = false; try { profile.name = L"bad\n[设置]"; store.saveProfile(profile); } catch (...) { badName = true; }
-        check(badName, "prevent INI section injection");
+        check(badName, "reject reserved characters and line breaks in names");
 
         profile = store.loadProfile(L"普通");
         auto rules = buildRules(profile,settings);
@@ -136,7 +164,7 @@ int main(int argc, char** argv) {
         const auto after = store.presetNames();
         check(after.size() == before.size() && after[0] == L"改名", "rename keeps profile position");
         check(store.loadProfile(L"改名").keys == std::vector<std::wstring>{L"X",L"Z",L"A",L"Num0"}, "rename keeps profile content");
-        check(read(path).find(L"UnknownProfile=still here") != std::wstring::npos, "rename keeps unknown fields");
+        check(read(path).find(L"still here") != std::wstring::npos, "rename keeps unknown fields");
         bool duplicateRejected = false;
         try { store.renameProfile(L"改名", L"第二"); } catch (const std::exception&) { duplicateRejected = true; }
         check(duplicateRejected, "rename rejects an existing name");
@@ -146,7 +174,7 @@ int main(int argc, char** argv) {
         if (argc > 1) {
             const auto actual = std::filesystem::path(argv[1]).wstring();
             const Store live(actual); const auto s = live.loadSettings(); const auto p = live.loadProfile(s.lastPreset);
-            check(!live.presetNames().empty() && !p.keys.empty(), "real INI read-only migration");
+            check(!live.presetNames().empty() && !p.keys.empty(), "real config.json read-only load");
             for (const auto& name : live.presetNames()) {
                 const auto existing = live.loadProfile(name);
                 for (const auto& key : existing.keys) check(bool(parseKey(key)), "real preset ordinary key alias valid");
@@ -154,7 +182,7 @@ int main(int argc, char** argv) {
                 check(merged.size() <= 128, "real preset merged engine rules within limit");
                 if (existing.zhanFa) check(isNumpadKey(existing.zhanFaShotKey), "real profession keypad alias valid");
                 const auto roundTrip = parseCombos(serializeCombos(existing.combos));
-                check(roundTrip.size() == existing.combos.size(), "real preset combo count survives legacy serialization");
+                check(roundTrip.size() == existing.combos.size(), "real preset combo count survives legacy text serialization");
                 for (size_t i = 0; i < roundTrip.size(); ++i) {
                     check(parseKey(roundTrip[i].trigger).physical_id() == parseKey(existing.combos[i].trigger).physical_id(), "real combo trigger survives round trip");
                     check(roundTrip[i].steps.size() == existing.combos[i].steps.size(), "real combo steps survive round trip");

@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <iostream>
 #include "../native/client_ui.h"
+#include "../native/client_ui_picker.h"
+#include "../native/client_ui_service.h"
 
 using namespace dafclient;
 namespace {
@@ -16,7 +18,7 @@ void expect(bool condition,const char* message) {
 }
 }
 int main() {
-    const auto path=std::filesystem::absolute(L"build/client-ui-test-"+std::to_wstring(GetCurrentProcessId())+L".ini");
+    const auto path=std::filesystem::absolute(L"build/client-ui-test-"+std::to_wstring(GetCurrentProcessId())+L".json");
     Store store(path.wstring());
     unsigned starts=0,stops=0,changes=0;
     bool allowStop=true,allowStart=true;
@@ -108,7 +110,89 @@ int main() {
         expect(ui.selectProfile(L"Existing")&&ui.currentProfile().name==L"Existing","select profile");
         expect(store.loadSettings().lastPreset==L"Existing","selected profile remembered");
         expect(changes>=5,"settings changes notified");
+
+        // Main-screen service chip: one friendly word per state, opening the service drawer.
+        {
+            svcctl::Info info;
+            auto s=ServicePanel::summarize(info,false);
+            expect(s.state==L"未安装"&&s.tone==ServiceTone::Stopped,"chip: not installed is red");
+            info.legacy={L"DNFProcessManager"};
+            s=ServicePanel::summarize(info,false);
+            expect(s.state==L"待替换"&&s.tone==ServiceTone::Update&&s.detail.find(L"DNFProcessManager")!=std::wstring::npos,"chip: legacy service to replace is yellow");
+            info.legacy.clear(); info.installed=true; info.pointsHere=true; info.state=SERVICE_RUNNING;
+            s=ServicePanel::summarize(info,false);
+            expect(s.state==L"运行中"&&s.tone==ServiceTone::Running,"chip: running is green");
+            info.state=SERVICE_STOPPED;
+            expect(ServicePanel::summarize(info,false).tone==ServiceTone::Stopped,"chip: stopped is red");
+            info.state=SERVICE_RUNNING; info.pointsHere=false;
+            expect(ServicePanel::summarize(info,false).tone==ServiceTone::Update,"chip: service registered for another EXE is yellow");
+            expect(ServicePanel::summarize(info,true).tone==ServiceTone::Busy,"chip: busy while an operation runs");
+            info.error=5;
+            s=ServicePanel::summarize(info,false);
+            expect(s.tone==ServiceTone::Stopped&&s.detail.find(L"5")!=std::wstring::npos,"chip: query error is red and shows its code");
+        }
+        // Service drawer: validated list edits saved to the same config.json.
+        ui.openServicePage();
+        expect(ui.addServiceItem(0,L"Foo.exe"),"kill list accepts a process name");
+        expect(!ui.addServiceItem(0,L"foo"),"duplicate process rejected");
+        expect(!ui.addServiceItem(0,L"DNF.exe"),"game process cannot be killed");
+        expect(!ui.addServiceItem(0,L"C:\\x\\a.exe"),"kill list takes names, not paths");
+        expect(ui.addServiceItem(2,L"Tools\\Other.exe"),"auto-start accepts a relative path");
+        expect(ui.status().find(L"不存在")!=std::wstring::npos,"missing auto-start file is hinted");
+        {
+            wchar_t self[MAX_PATH]{}; GetModuleFileNameW(nullptr,self,MAX_PATH);
+            const std::wstring name=std::filesystem::path(self).filename().wstring();
+            expect(ui.addServiceItem(2,name),"the client itself can be listed for auto-start");
+            const size_t at=ui.serviceOptions().autoStart.size()-1;
+            expect(!ui.removeServiceItem(2,at),"the client's own auto-start entry cannot be removed");
+            expect(ui.serviceOptions().autoStart.size()==at+1,"locked entry kept");
+            expect(ui.removeServiceItem(2,1),"other auto-start entries can be removed");
+            expect(ui.addServiceItem(2,L"Tools\\Other.exe"),"re-add the relative program");
+        }
+        expect(ui.flushService(),"service options saved");
+        const auto service=store.loadService();
+        expect(service.kill.size()==3&&service.kill.back()==L"Foo.exe","kill list persisted");
+        expect(service.autoStart.size()==3,"auto-start persisted");
+        ui.setKeyEnabled(L"W",true); ui.flush();
+        expect(store.loadService().kill.size()==3,"profile save keeps service options");
+
+        // Pickers: running-process catalogue and path normalisation for chosen programs.
+        const auto processes=runningProcesses();
+        bool sorted=true,unique=true;
+        for(size_t i=1;i<processes.size();++i) {
+            if(_wcsicmp(processes[i-1].name.c_str(),processes[i].name.c_str())>0) sorted=false;
+            if(_wcsicmp(processes[i-1].name.c_str(),processes[i].name.c_str())==0) unique=false;
+        }
+        expect(!processes.empty()&&sorted&&unique,"running processes listed once each, sorted");
+        expect(relativeToDirectory(L"C:\\DAF\\Tools\\x.exe",L"C:\\DAF")==L"Tools\\x.exe","program inside the EXE folder becomes relative");
+        expect(relativeToDirectory(L"c:\\daf\\y.exe",L"C:\\DAF\\")==L"y.exe","relative conversion ignores case and trailing slash");
+        expect(relativeToDirectory(L"D:\\Other\\z.exe",L"C:\\DAF")==L"D:\\Other\\z.exe","program elsewhere keeps its full path");
+        expect(relativeToDirectory(L"C:\\DAFX\\z.exe",L"C:\\DAF")==L"C:\\DAFX\\z.exe","sibling folder with the same prefix stays absolute");
         expect(starts==3,"start callbacks match requests");
+
+        // Program update from a picked file (this test EXE carries the client's version resource).
+        {
+            wchar_t selfPath[MAX_PATH]{}; GetModuleFileNameW(nullptr,selfPath,MAX_PATH);
+            ServicePanel panel(store,selfPath);
+            const auto dir=std::filesystem::absolute(L"build/client-ui-update-"+std::to_wstring(GetCurrentProcessId()));
+            std::filesystem::create_directories(dir);
+            const auto picked=(dir/L"DNFAutoFire.exe").wstring(), same=(dir/L"Same.exe").wstring(), notes=(dir/L"notes.exe").wstring();
+            CopyFileW(selfPath,picked.c_str(),FALSE); CopyFileW(selfPath,same.c_str(),FALSE);
+            { HANDLE f=CreateFileW(picked.c_str(),FILE_APPEND_DATA,0,nullptr,OPEN_EXISTING,0,nullptr); DWORD n=0; WriteFile(f,"new",3,&n,nullptr); CloseHandle(f); }
+            { HANDLE f=CreateFileW(notes.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr); DWORD n=0; WriteFile(f,"text",4,&n,nullptr); CloseHandle(f); }
+            std::wstring error;
+            expect(!panel.chooseUpdate(selfPath,error)&&error.find(L"当前正在运行")!=std::wstring::npos,"update: the running program itself is refused");
+            error.clear();
+            expect(!panel.chooseUpdate(notes,error)&&error.find(L"不是")!=std::wstring::npos,"update: a file that is not the program is refused");
+            error.clear();
+            expect(!panel.chooseUpdate(same,error)&&error.find(L"完全相同")!=std::wstring::npos,"update: an identical copy needs no update");
+            error.clear();
+            expect(panel.chooseUpdate(L" "+picked+L" ",error)&&error.empty(),"update: a different build is accepted");
+            expect(!panel.pendingUpdate().empty()&&std::filesystem::equivalent(panel.pendingUpdate(),picked),"update: picked file awaits confirmation");
+            panel.cancelUpdate();
+            expect(panel.pendingUpdate().empty(),"update: cancel clears the pending file");
+            std::error_code ignored; std::filesystem::remove_all(dir,ignored);
+        }
     }
     std::filesystem::remove(path);
     std::cout << "Native UI: " << checks << " checks, " << failures << " failures\n";

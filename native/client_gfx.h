@@ -24,7 +24,7 @@ struct Theme {
     Color bg, bar, surface, surface2, surface3, line, line2, text, text2, text3;
     Color caseBg, caseLine, caseEtch;
     Color capTop, capSide, capTopH, capLegend, modTop, modSide, modTopH, modLegend;
-    Color led, ledGlow, ledRing, ledOff, ledBad, ledBadGlow, danger;
+    Color led, ledGlow, ledRing, ledOff, ledBad, ledBadGlow, ledWarn, ledWarnGlow, danger;
     Color accent, onAccent, accentSoft, accentText;
     Color run, runSoft, combo, comboSoft, cls, scrim, shadow, focus;
 };
@@ -55,7 +55,7 @@ public:
 
 enum class Icon {
     Sun, Moon, Gear, Minus, Close, More, Edit, Copy, Trash, TrashSmall, Plus, Power,
-    ChevronRight, ChevronDown, ArrowRight, Check, Clock
+    ChevronRight, ChevronDown, ArrowRight, Check, Clock, Lock, Wrench, Folder, Refresh
 };
 
 enum class Align { Left, Center, Right };
@@ -75,6 +75,10 @@ public:
 
     // Multiplies every color alpha, for disabled or de-emphasised regions.
     void setOpacity(float opacity) { opacity_ = opacity; }
+    // Transition layer: an extra alpha factor and a translation (DIPs) applied to
+    // everything drawn until reset, independent of setOpacity. Reset by begin().
+    void setLayer(float opacity, float dx = 0.f, float dy = 0.f);
+    void resetLayer() { setLayer(1.f, 0.f, 0.f); }
     // While muted every drawing call is skipped; used to measure layout without painting.
     void setMuted(bool muted) { muted_ = muted; }
     bool muted() const { return muted_; }
@@ -110,7 +114,7 @@ private:
     void discard();
 
     HWND window_ = nullptr;
-    float scale_ = 1.f, opacity_ = 1.f;
+    float scale_ = 1.f, opacity_ = 1.f, layer_ = 1.f, dx_ = 0.f, dy_ = 0.f;
     bool muted_ = false;
     ID2D1Factory* factory_ = nullptr;
     ID2D1HwndRenderTarget* target_ = nullptr;

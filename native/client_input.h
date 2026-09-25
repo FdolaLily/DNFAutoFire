@@ -8,7 +8,8 @@
 
 namespace dafclient {
 constexpr UINT kInputCommandMessage = WM_APP + 0x51;
-enum class InputCommand : unsigned { Start = 1, Stop, QuickSwitch, ToggleRun, Error };
+// Exit is posted by the service-quit listener (client_main), not by the input hook.
+enum class InputCommand : unsigned { Start = 1, Stop, QuickSwitch, ToggleRun, Error, Exit };
 
 // Lifecycle is owned by the UI thread. Start after AF_Start so this observer is
 // first in the hook chain. Stop and join before releasing the engine pointer.

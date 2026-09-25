@@ -3,6 +3,11 @@
 #endif
 #include "client_ui.h"
 #include "client_gfx.h"
+#include "client_ui_service.h"
+#include "client_ui_toolbox.h"
+#include "ui_motion.h"
+#include "version.h"
+#include "win_fs.h"
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -20,11 +25,11 @@ namespace dafclient {
 using namespace gfx;
 namespace {
 constexpr UINT kTrayMessage = WM_APP + 0x27;
-constexpr UINT_PTR kSaveTimer = 0xDA01, kAnimTimer = 0xDA02;
+constexpr UINT_PTR kSaveTimer = 0xDA01, kAnimTimer = 0xDA02, kServiceTimer = 0xDA03, kServiceSaveTimer = 0xDA04, kFrameTimer = 0xDA05, kAuxTimer = 0xDA06;
 constexpr UINT kSaveDelayMs = 400;
 constexpr float kW = 1280.f, kH = 800.f;
-constexpr wchar_t kVersion[] = L"v0.2.0";
-constexpr wchar_t kFullVersion[] = L"v0.2.0.0";
+constexpr wchar_t kVersion[] = L"v" DAF_VERSION_SHORT;        // native/version.h
+constexpr wchar_t kFullVersion[] = L"v" DAF_VERSION_STRING;
 enum TrayCommand : UINT { TrayToggle = 1, TrayQuick, TrayShow, TrayExit };
 constexpr float kTrayMenuW = 232.f;
 
@@ -35,7 +40,7 @@ enum : int {
     IdClassLink, IdLvRow, IdZfRow, IdJzRow, IdLvSw, IdZfSw, IdJzSw, IdComboSw, IdComboLink, IdRunSw, IdRunLink,
     IdMenuRename, IdMenuClone, IdMenuDelete, IdMenuPanel, IdAddCombo, IdScopeAll, IdScopeOne,
     IdGuardDec, IdGuardInc, IdGapDec, IdGapInc, IdPressDec, IdPressInc, IdJzDec, IdJzInc,
-    IdAutoSw, IdLoginSw, IdWinSw, IdExtPanel, IdQuickChip,
+    IdAutoSw, IdLoginSw, IdWinSw, IdExtPanel, IdQuickChip, IdService, IdToolbox,
     IdKey = 1000, IdExtKey = 1200, IdTab = 1300, IdOverflowItem = 1400,
     IdComboSelect = 2000, IdComboDelete = 2100, IdComboDelay = 2200,
     IdCapRun = 3000, IdCapRunHotkey = 3010, IdCapQuick, IdCapLvShot, IdCapZfShot, IdCapJz, IdCapLvAdd, IdCapZfAdd,
@@ -156,9 +161,17 @@ const std::vector<std::wstring>& extKeys() {
     return keys;
 }
 
-enum class Drawer { None, Class, Combo, Run, Settings };
+enum class Drawer { None, Class, Combo, Run, Settings, Service, Toolbox };
 enum class Occupied { None, Run, Combo, JianZong };
-enum class Edit { None, Rename, Delay };
+enum class Edit { None, Rename, Delay, Text };
+
+// Transition keys that are not widget ids (widget transitions use their hit id).
+enum : int {
+    AnimDrawer = -1, AnimMenu = -2, AnimOverflow = -3, AnimExt = -4, AnimPower = -6, AnimRunScope = -7,
+    AnimDrawerContent = -8, AnimScroll = -9, AnimTabX = -10, AnimTabW = -11, AnimMessage = -12, AnimServiceChip = -13,
+    AnimQuickSel = -20, AnimQuickFade = -21, AnimTrayFade = -22,
+    AnimHover = 100000, AnimLed = 200000, AnimPress = 300000
+};
 
 struct Hit {
     D2D1_RECT_F rect;
@@ -173,11 +186,49 @@ struct Capture {
 };
 } // namespace
 
-struct ClientUi::Impl {
+struct ClientUi::Impl : UiHost {
     HINSTANCE instance;
     Store& store;
     UiCallbacks callbacks;
-    HWND main = nullptr, quick = nullptr, nameEdit = nullptr, numberEdit = nullptr;
+    HWND main = nullptr, quick = nullptr, nameEdit = nullptr, numberEdit = nullptr, textEdit = nullptr;
+    ServicePanel servicePanel;
+    ToolboxPanel toolboxPanel;
+    // Transitions: the drawer being shown (kept while it slides out), hit offsets and suppression.
+    Motion motion;
+    Drawer shownDrawer = Drawer::None;
+    float hitDx = 0.f, drawerDx = 0.f;
+    bool suppressHits = false, overlayHitsOff = false;
+    bool framing = false;
+    // Quick-switch and tray menu are separate windows with their own clock and fade-in.
+    Motion auxMotion, fadeMotion;
+    bool auxFraming = false, quickPending = false, trayPending = false;
+    // Runs while the quick-switch / tray windows fade in or animate their content.
+    void ensureAuxFrames() { if (!auxFraming && main) { SetTimer(main, kAuxTimer, 15, nullptr); auxFraming = true; } }
+    void auxTick() {
+        fadeMotion.beginFrame();
+        const auto fade = [&](HWND window, int key) {
+            if (!window || !IsWindowVisible(window)) return;
+            const float a = fadeMotion.value(key, 1.f, 150);
+            SetLayeredWindowAttributes(window, 0, BYTE(std::lround(a * 255.f)), LWA_ALPHA);
+        };
+        fade(quick, AnimQuickFade);
+        fade(trayMenuWnd, AnimTrayFade);
+        if (quickPending && quick && IsWindowVisible(quick)) invalidateQuick();
+        if (trayPending && trayMenuWnd && IsWindowVisible(trayMenuWnd)) invalidateTray();
+        if (!fadeMotion.pending() && !quickPending && !trayPending) { KillTimer(main, kAuxTimer); auxFraming = false; }
+    }
+    void startFade(HWND window, int key) {
+        if (!window) return;
+        SetLayeredWindowAttributes(window, 0, Motion::systemEnabled() ? 0 : 255, LWA_ALPHA);
+        fadeMotion.jump(key, 0.f);
+        ensureAuxFrames();
+    }
+    void resetScroll() { scroll = scrollTarget = 0.f; motion.jump(AnimScroll, 0.f); }
+    // Generic text field (service drawer): the active field id and its commit action.
+    int textId = 0;
+    TextCommit textCommit;
+    TextChange textChange;
+    bool textSubmitted = false; // Set while Enter commits the text field.
     HFONT sansFont = nullptr, monoFont = nullptr;
     HBRUSH editBrush = nullptr;
     Canvas canvas, quickCanvas, trayCanvas;
@@ -201,12 +252,12 @@ struct ClientUi::Impl {
     int errorId = 0; std::wstring errorText;
     std::wstring message; bool messageError = false, messageHint = false;
     int comboSel = 0;
-    float scroll = 0.f, contentHeight = 0.f;
+    float scroll = 0.f, scrollTarget = 0.f, contentHeight = 0.f; // scroll eases toward scrollTarget.
     Edit editing = Edit::None; int editCombo = -1, editStep = -1;
     int quickSel = 0, quickHover = -1, quickScroll = 0;
     DWORD animStart = GetTickCount();
 
-    Impl(HINSTANCE h, Store& s, UiCallbacks cb) : instance(h), store(s), callbacks(std::move(cb)) {}
+    Impl(HINSTANCE h, Store& s, UiCallbacks cb) : instance(h), store(s), callbacks(std::move(cb)), servicePanel(s, fs::modulePath()), toolboxPanel(s) {}
     ~Impl() {
         if (trayAdded) Shell_NotifyIconW(NIM_DELETE, &tray);
         if (quick && IsWindow(quick)) DestroyWindow(quick);
@@ -248,18 +299,20 @@ struct ClientUi::Impl {
     }
     void changed() { dirty = true; if (main) SetTimer(main, kSaveTimer, kSaveDelayMs, nullptr); invalidate(); }
     bool flush() {
+        if (main) KillTimer(main, kServiceSaveTimer);
+        servicePanel.flush(*this);
         if (main) KillTimer(main, kSaveTimer);
         if (!dirty) return true;
         try {
             options.lastPreset = profile.name;
-            store.saveProfile(profile); store.saveSettings(options);
+            store.save(profile, options);
             dirty = false;
             refreshCount();
             if (callbacks.settingsChanged) callbacks.settingsChanged(profile, options);
             invalidate();
             return true;
         } catch (...) {
-            showMessage(L"无法写入配置文件，请检查 config.ini 的写入权限。", true);
+            showMessage(L"无法写入配置文件，请检查 config.json 的写入权限。", true);
             return false;
         }
     }
@@ -278,9 +331,15 @@ struct ClientUi::Impl {
     void refreshCount() {
         for (size_t i = 0; i < names.size(); ++i) if (names[i] == profile.name && i < counts.size()) counts[i] = keyCount(profile);
     }
-    void showMessage(const std::wstring& text, bool isError) { message = text; messageError = isError; messageHint = false; invalidate(); }
+    void showMessage(const std::wstring& text, bool isError) {
+        if (text != message) motion.jump(AnimMessage, 0.f);
+        message = text; messageError = isError; messageHint = false; invalidate();
+    }
     // Friendly advisory (not an error): shown in the warm hint colour.
-    void showHint(const std::wstring& text) { message = text; messageError = false; messageHint = true; invalidate(); }
+    void showHint(const std::wstring& text) {
+        if (text != message) motion.jump(AnimMessage, 0.f);
+        message = text; messageError = false; messageHint = true; invalidate();
+    }
     static std::wstring timingHint() {
         const auto ms = std::to_wstring(kDefaultFireMs);
         return L"按下/抬起低于 " + ms + L"ms 时，游戏可能来不及识别，出现漏键或技能释放不稳；建议保持 " + ms + L"ms 及以上。";
@@ -300,7 +359,7 @@ struct ClientUi::Impl {
             store.saveSettings(options);
             refreshNames();
         } catch (...) { showMessage(L"无法读取方案，请检查配置文件。", true); return false; }
-        comboSel = 0; scroll = 0; menu = overflow = confirmDelete = false; cancelCapture(); clearError();
+        comboSel = 0; resetScroll(); menu = overflow = confirmDelete = false; cancelCapture(); clearError();
         if (callbacks.settingsChanged) callbacks.settingsChanged(profile, options);
         invalidate();
         return true;
@@ -452,7 +511,7 @@ struct ClientUi::Impl {
         invalidate();
         return true;
     }
-    HWND editorFor(Edit kind) const { return kind == Edit::Rename ? nameEdit : numberEdit; }
+    HWND editorFor(Edit kind) const { return kind == Edit::Rename ? nameEdit : kind == Edit::Text ? textEdit : numberEdit; }
     void placeEditor(HWND edit, const D2D1_RECT_F& r, const std::wstring& text) {
         SetWindowPos(edit, HWND_TOP, int(std::lround(r.left * scale)), int(std::lround(r.top * scale)),
             int(std::lround((r.right - r.left) * scale)), int(std::lround((r.bottom - r.top) * scale)), SWP_SHOWWINDOW);
@@ -482,6 +541,11 @@ struct ClientUi::Impl {
         ShowWindow(edit, SW_HIDE);
         if (GetFocus() == edit) SetFocus(main);
         if (kind == Edit::Rename) renameProfile(text);
+        else if (kind == Edit::Text) {
+            auto commit = std::move(textCommit);
+            textCommit = {}; textChange = {}; textId = 0;
+            if (commit) commit(text, textSubmitted);
+        }
         else if (editCombo >= 0 && size_t(editCombo) < profile.combos.size() &&
                  editStep >= 0 && size_t(editStep) < profile.combos[size_t(editCombo)].steps.size()) {
             unsigned long value = 0;
@@ -494,15 +558,17 @@ struct ClientUi::Impl {
     void cancelEdit() {
         if (editing == Edit::None) return;
         HWND edit = editorFor(editing); editing = Edit::None;
+        textId = 0; textCommit = {}; textChange = {};
         ShowWindow(edit, SW_HIDE); SetFocus(main); invalidate();
     }
 
     // ---------------------------------------------------------------- hit testing
     bool clipHits = false; D2D1_RECT_F hitClip{};
     void hit(const D2D1_RECT_F& r, int id, std::function<void()> click = {}, std::function<void()> right = {}, std::function<void()> dbl = {}) {
-        D2D1_RECT_F area = r;
+        if (suppressHits || overlayHitsOff) return; // Content that is fading or sliding away.
+        D2D1_RECT_F area = D2D1::RectF(r.left + hitDx, r.top, r.right + hitDx, r.bottom);
         if (clipHits) {
-            area = intersect(r, hitClip);
+            area = intersect(area, D2D1::RectF(hitClip.left + hitDx, hitClip.top, hitClip.right + hitDx, hitClip.bottom));
             if (area.right <= area.left || area.bottom <= area.top) return; // Scrolled out of the drawer body.
         }
         hits.push_back({area, id, std::move(click), std::move(right), std::move(dbl)});
@@ -515,23 +581,36 @@ struct ClientUi::Impl {
     bool isPressed(int id) const { return pressed == id && hover == id; }
     void openDrawer(Drawer d) {
         commitEdit(); cancelCapture(); clearError();
-        drawer = d; menu = overflow = ext = confirmDelete = false; scroll = 0; invalidate();
+        servicePanel.closeOverlays(*this);
+        if (d != Drawer::None && d != drawer) {
+            resetScroll();
+            // Switching drawers while one is open cross-fades the content instead of cutting.
+            if (drawer != Drawer::None) motion.jump(AnimDrawerContent, 0.f);
+        }
+        drawer = d; menu = overflow = ext = confirmDelete = false; invalidate();
+        if (d != Drawer::None) shownDrawer = d;
+        if (d == Drawer::Toolbox) toolboxPanel.opened(*this);
     }
 
     // ---------------------------------------------------------------- widgets
     void iconButton(int id, float x, float y, Icon icon, std::function<void()> click, float size = 18.f, float side = 32.f) {
         const auto& t = theme();
         const auto r = box(x, y, side, side);
-        if (hovered(id)) canvas.fillRound(r, 8, t.surface3);
-        canvas.icon(icon, x + (side - size) / 2, y + (side - size) / 2, size, hovered(id) ? t.text : t.text2);
+        const float h = motion.value(AnimHover + id, hovered(id) ? 1.f : 0.f, 120);
+        Color bg = t.surface3; bg.a *= h;
+        canvas.fillRound(r, 8, bg);
+        canvas.icon(icon, x + (side - size) / 2, y + (side - size) / 2, size, mix(t.text2, t.text, h));
         hit(r, id, std::move(click));
     }
     void toggleSwitch(int id, float x, float y, bool on, std::function<void()> click) {
         const auto& t = theme();
         const auto r = box(x, y, 36, 20);
-        if (on) canvas.fillRound(r, 10, t.accent);
-        else { canvas.fillRound(r, 10, t.surface3); canvas.insetRing(r, 10, t.line2, 1); }
-        canvas.fillCircle(on ? x + 26 : x + 10, y + 10, 8, on ? t.onAccent : t.text3);
+        // The knob slides and the track fades between off and on.
+        const float k = motion.value(id, on ? 1.f : 0.f, 170);
+        canvas.fillRound(r, 10, mix(t.surface3, t.accent, k));
+        Color edge = t.line2; edge.a *= 1.f - k;
+        canvas.insetRing(r, 10, edge, 1);
+        canvas.fillCircle(lerp(x + 10, x + 26, k), y + 10, 8, mix(t.text3, t.onAccent, k));
         hit(r, id, std::move(click));
     }
     void stepper(int idDec, int idInc, float x, float y, float w, const std::wstring& value, std::function<void()> dec, std::function<void()> inc, bool warn = false) {
@@ -600,9 +679,14 @@ struct ClientUi::Impl {
             [this, applyCopy] { cancelCapture(); if (applyCopy) applyCopy(L""); invalidate(); });
         return w;
     }
-    void led(float cx, float cy, bool on, bool bad, bool breathe) {
+    void led(float cx, float cy, bool on, bool bad, bool breathe, int key = 0) {
         const auto& t = theme();
-        if (!on && !bad) { canvas.fillCircle(cx, cy, 2.5f, t.ledOff); return; }
+        // The LED lights up and dims gradually, like a real indicator.
+        const float k = key ? motion.value(AnimLed + key, (on || bad) ? 1.f : 0.f, 220) : ((on || bad) ? 1.f : 0.f);
+        if (k < 1.f) canvas.fillCircle(cx, cy, 2.5f, t.ledOff);
+        if (k <= 0.001f) return;
+        const float saved = canvas.opacity();
+        canvas.setOpacity(saved * k);
         float blur = 8.f;
         if (breathe) {
             const float phase = float((GetTickCount() - animStart) % 1200) / 1200.f;
@@ -611,21 +695,24 @@ struct ClientUi::Impl {
         canvas.glow(cx, cy, 3.5f, 3.5f + blur, bad ? t.ledBadGlow : t.ledGlow);
         canvas.fillCircle(cx, cy, 4.f, bad ? rgb(0xFF5D5D, .25f) : t.ledRing);
         canvas.fillCircle(cx, cy, 2.5f, bad ? t.ledBad : t.led);
+        canvas.setOpacity(saved);
     }
     void keycap(const BoardKey& k, float bx, float by, int id, bool breathe) {
         const auto& t = theme();
         const bool on = keyOn(k.id);
         const Occupied occ = occupied(k.id);
-        float oy = isPressed(id) ? 1.f : 0.f;
+        // Key travel and hover light follow the pointer smoothly.
+        const float oy = motion.value(AnimPress + id, isPressed(id) ? 1.5f : 0.f, 70);
+        const float hk = motion.value(AnimHover + id, hovered(id) ? 1.f : 0.f, 110);
         const auto r = box(bx + k.x, by + k.y + oy, k.w, k.h);
         canvas.fillRound(r, 7, k.mod ? t.modSide : t.capSide);
         const auto face = D2D1::RectF(r.left + 3, r.top + 2, r.right - 3, r.bottom - 5);
-        canvas.fillRound(face, 5, hovered(id) ? (k.mod ? t.modTopH : t.capTopH) : (k.mod ? t.modTop : t.capTop));
+        canvas.fillRound(face, 5, k.mod ? mix(t.modTop, t.modTopH, hk) : mix(t.capTop, t.capTopH, hk));
         if (!k.label.empty()) {
             if (k.mod) canvas.text(k.label, mono(10.5f), face.left + 7, face.bottom - 6 - 5.25f, on ? t.capLegend : t.modLegend);
             else canvas.text(k.label, mono(13), face.left + 7, face.top + 5 + 6.5f, t.capLegend);
         }
-        led(face.right - 8.5f, face.top + 8.5f, on, on && occ != Occupied::None, breathe);
+        led(face.right - 8.5f, face.top + 8.5f, on, on && occ != Occupied::None, breathe, id);
         if (occ != Occupied::None) {
             const Color c = occ == Occupied::Run ? t.run : occ == Occupied::Combo ? t.combo : t.cls;
             canvas.fillRound(box(face.right - 18, face.bottom - 9, 12, 3), 1.5f, c);
@@ -640,14 +727,31 @@ struct ClientUi::Impl {
     void paint() {
         const auto& t = theme();
         hits.clear();
+        motion.beginFrame();
         if (!canvas.begin(t.bg)) return;
         paintHeader(); paintProfiles(); paintKeyboard(); paintCards(); paintFooter();
-        if (ext) paintExt();
-        if (menu) paintMenu();
-        if (overflow) paintOverflow();
-        if (drawer != Drawer::None) paintDrawer();
+        // Popovers fade in with a slight drop and fade out without taking clicks.
+        const auto popover = [&](int key, bool open, void (Impl::*paintFn)()) {
+            const float a = motion.value(key, open ? 1.f : 0.f, 140);
+            if (a <= 0.001f) return;
+            suppressHits = !open;
+            canvas.setLayer(a, 0.f, (a - 1.f) * 6.f);
+            (this->*paintFn)();
+            canvas.resetLayer();
+            suppressHits = false;
+        };
+        popover(AnimExt, ext, &Impl::paintExt);
+        popover(AnimMenu, menu, &Impl::paintMenu);
+        popover(AnimOverflow, overflow, &Impl::paintOverflow);
+        const float d = motion.value(AnimDrawer, drawer != Drawer::None ? 1.f : 0.f, 260);
+        if (d <= 0.001f && drawer == Drawer::None) shownDrawer = Drawer::None;
+        if (shownDrawer != Drawer::None) paintDrawer(d);
         canvas.end();
+        // Keep producing frames only while something is moving.
+        if (motion.pending() && !framing) { SetTimer(main, kFrameTimer, 15, nullptr); framing = true; }
+        else if (!motion.pending() && framing) { KillTimer(main, kFrameTimer); framing = false; }
         if (editing != Edit::None && drawer != Drawer::Combo && editing == Edit::Delay) cancelEdit();
+        if (editing == Edit::Text && drawer != Drawer::Service) cancelEdit();
     }
     void paintHeader() {
         const auto& t = theme();
@@ -664,6 +768,8 @@ struct ClientUi::Impl {
         iconButton(IdTheme, 1100, 6, dark ? Icon::Sun : Icon::Moon, [this, dark] {
             options.theme = dark ? L"light" : L"dark"; saveTheme(); applyEditColors(); invalidate(); invalidateQuick(); invalidateTray();
         });
+        // The service drawer opens from the status chip beside the power switch (paintProfiles).
+        iconButton(IdToolbox, 1058, 6, Icon::Wrench, [this] { openDrawer(drawer == Drawer::Toolbox ? Drawer::None : Drawer::Toolbox); });
         iconButton(IdSettings, 1142, 6, Icon::Gear, [this] { openDrawer(drawer == Drawer::Settings ? Drawer::None : Drawer::Settings); });
         canvas.fill(box(1188, 13, 1, 18), t.line2);
         iconButton(IdMin, 1198, 6, Icon::Minus, [this] { ShowWindow(main, SW_MINIMIZE); }, 15);
@@ -681,20 +787,24 @@ struct ClientUi::Impl {
         const float cy = 78;
         // Power switch, right aligned.
         const std::wstring powerLabel = running ? L"运行中" : L"启动连发";
-        const float pw = 6 + 28 + 10 + canvas.textWidth(powerLabel, sans(14, 600)) + 20;
+        // The power switch blends between off and on: width, fill, ring, knob and label.
+        const float k = motion.value(AnimPower, running ? 1.f : 0.f, 220);
+        const float offW = 6 + 28 + 10 + canvas.textWidth(L"启动连发", sans(14, 600)) + 20;
+        const float onW = 6 + 28 + 10 + canvas.textWidth(L"运行中", sans(14, 600)) + 20;
+        const float pw = lerp(offW, onW, k);
         const auto pr = box(1240 - pw, 58, pw, 40);
-        if (running) {
-            canvas.ring(pr, 20, t.accentSoft, 4); canvas.fillRound(pr, 20, t.accent);
-            canvas.fillCircle(pr.left + 20, cy, 14, t.onAccent);
-            canvas.icon(Icon::Power, pr.left + 12.5f, cy - 7.5f, 15, t.accent);
-            canvas.text(powerLabel, sans(14, 600), pr.left + 44, cy, t.onAccent);
-        } else {
-            canvas.fillRound(pr, 20, t.surface2); canvas.insetRing(pr, 20, hovered(IdPower) ? t.text3 : t.line2, 1);
-            canvas.fillCircle(pr.left + 20, cy, 14, t.surface3);
-            canvas.icon(Icon::Power, pr.left + 12.5f, cy - 7.5f, 15, t.text2);
-            canvas.text(powerLabel, sans(14, 600), pr.left + 44, cy, t.text);
-        }
+        Color halo = t.accentSoft; halo.a *= k;
+        canvas.ring(pr, 20, halo, 4);
+        canvas.fillRound(pr, 20, mix(t.surface2, t.accent, k));
+        Color edge = hovered(IdPower) ? t.text3 : t.line2; edge.a *= 1.f - k;
+        canvas.insetRing(pr, 20, edge, 1);
+        canvas.fillCircle(pr.left + 20, cy, 14, mix(t.surface3, t.onAccent, k));
+        canvas.icon(Icon::Power, pr.left + 12.5f, cy - 7.5f, 15, mix(t.text2, t.accent, k));
+        canvas.pushClip(pr);
+        canvas.text(powerLabel, sans(14, 600), pr.left + 44, cy, mix(t.text, t.onAccent, k));
+        canvas.popClip();
         hit(pr, IdPower, [this] { if (running) stop(); else start(true); });
+        const auto sr = paintServiceChip(pr.left - 12, cy);
 
         // Tabs with overflow.
         // In-game quick-switch hotkey: the keycap itself is a capture field (click, press a combination).
@@ -702,7 +812,7 @@ struct ClientUi::Impl {
         const std::wstring quickLabel = quickListening ? L"按下组合键…" : hotkeyLabel(options.quickSwitchHotkey);
         const std::wstring quickNote = quickBad ? errorText : (quickListening ? L"Esc 取消" : L"游戏内切换");
         const float groupW = 16 + canvas.textWidth(quickLabel, mono(11)) + 14 + 8 + canvas.textWidth(quickNote, sans(12));
-        const float limit = pr.left - 16 - groupW - 1 - 14 - 32 - 6 - 40;
+        const float limit = sr.left - 16 - groupW - 1 - 14 - 32 - 6 - 40;
         std::vector<float> widths; float total = 0; size_t active = 0;
         for (size_t i = 0; i < names.size(); ++i) { widths.push_back(tabWidth(i)); total += widths.back() + 6; if (names[i] == profile.name) active = i; }
         std::vector<size_t> shown; hiddenTabs.clear();
@@ -716,11 +826,17 @@ struct ClientUi::Impl {
             }
         }
         float x = 40;
+        {
+            // The active-tab background glides to the newly selected profile.
+            float px = 40, tx = 40, tw = 0;
+            for (size_t i : shown) { if (i == active) { tx = px; tw = widths[i]; } px += widths[i] + 6; }
+            const float ax = motion.value(AnimTabX, tx, 220), aw = motion.value(AnimTabW, tw, 220);
+            if (aw > 0) { const auto pill = box(ax, 60, aw, 36); canvas.fillRound(pill, 10, t.surface2); canvas.insetRing(pill, 10, t.line, 1); }
+        }
         for (size_t i : shown) {
             const bool isActive = i == active;
             const auto r = box(x, 60, widths[i], 36);
             const int id = IdTab + int(i);
-            if (isActive) { canvas.fillRound(r, 10, t.surface2); canvas.insetRing(r, 10, t.line, 1); }
             if (isActive && editing == Edit::Rename) {
                 const auto field = box(x + 4, 63, 140, 30);
                 canvas.fillRound(field, 7, t.surface); canvas.insetRing(field, 7, t.accent, 1);
@@ -778,6 +894,42 @@ struct ClientUi::Impl {
         for (size_t i : shown) { if (i == active) activeTabRight = ax + widths[i]; ax += widths[i] + 6; }
     }
     float activeTabRight = 0; D2D1_RECT_F overflowAnchor{};
+    // Background service state as a friendly pill ending at right; a click opens the service drawer.
+    D2D1_RECT_F paintServiceChip(float right, float cy) {
+        const auto& t = theme();
+        const auto svc = servicePanel.summary();
+        const bool busy = svc.tone == ServiceTone::Busy;
+        const Font keyFont = sans(12.5f), stateFont = sans(13, 600);
+        const std::wstring key = L"后台服务";
+        const float keyW = canvas.textWidth(key, keyFont), stateW = canvas.textWidth(svc.state, stateFont);
+        const float target = 12 + (busy ? 26.f : 8.f) + 8 + keyW + 6 + stateW + 2 + 15 + 8;
+        const float w = motion.value(AnimServiceChip, target, 220); // Glides when the wording changes.
+        const auto r = box(right - w, cy - 16, w, 32);
+        const float h = motion.value(AnimHover + IdService, hovered(IdService) || drawer == Drawer::Service ? 1.f : 0.f, 120);
+        Color bg = t.surface2; bg.a *= h;
+        canvas.fillRound(r, 16, bg);
+        canvas.insetRing(r, 16, mix(t.line, t.line2, h), 1);
+        canvas.pushClip(r);
+        float x = r.left + 12;
+        if (busy) { uiSpinner(x - 3, cy); x += 26; }
+        else {
+            // Green running, yellow needs updating, red not running.
+            const Color dot = ServicePanel::toneColor(t, svc.tone);
+            Color glow = dot; glow.a *= .6f;
+            canvas.glow(x + 4, cy, 3.f, 10.f, glow);
+            canvas.fillCircle(x + 4, cy, 3.5f, dot);
+            x += 8;
+        }
+        x += 8;
+        canvas.text(key, keyFont, x, cy, mix(t.text3, t.text2, h));
+        x += keyW + 6;
+        canvas.text(svc.state, stateFont, x, cy, t.text);
+        x += stateW + 2;
+        canvas.icon(Icon::ChevronRight, x, cy - 7.5f, 15, mix(t.text3, t.text, h));
+        canvas.popClip();
+        hit(r, IdService, [this] { openDrawer(drawer == Drawer::Service ? Drawer::None : Drawer::Service); });
+        return r;
+    }
     void paintMenu() {
         const auto& t = theme();
         const float w = 168, h = 6 + 34 + 34 + 9 + 34 + 6;
@@ -786,7 +938,8 @@ struct ClientUi::Impl {
         hit(r, IdMenuPanel, [] {});
         const auto item = [&](int id, float y, Icon icon, const std::wstring& label, Color color, bool enabled, std::function<void()> click) {
             const auto ir = box(r.left + 6, y, w - 12, 34);
-            if (hovered(id) && enabled) canvas.fillRound(ir, 7, t.surface2);
+            Color bg = t.surface2; bg.a *= motion.value(AnimHover + id, hovered(id) && enabled ? 1.f : 0.f, 110);
+            canvas.fillRound(ir, 7, bg);
             canvas.setOpacity(enabled ? 1.f : .4f);
             canvas.icon(icon, ir.left + 10, y + 9.5f, 15, color);
             canvas.text(label, sans(13), ir.left + 35, y + 17, color);
@@ -808,7 +961,8 @@ struct ClientUi::Impl {
         for (int index : hiddenTabs) {
             const int id = IdOverflowItem + index;
             const auto ir = box(r.left + 6, y, w - 12, 34);
-            if (hovered(id)) canvas.fillRound(ir, 7, t.surface2);
+            Color bg = t.surface2; bg.a *= motion.value(AnimHover + id, hovered(id) ? 1.f : 0.f, 110);
+            canvas.fillRound(ir, 7, bg);
             canvas.text(names[size_t(index)], sans(13), ir.left + 10, y + 17, t.text, Align::Left, w - 70);
             canvas.text(std::to_wstring(countFor(size_t(index))), mono(11), ir.right - 10, y + 17, t.text3, Align::Right);
             const auto name = names[size_t(index)];
@@ -882,6 +1036,7 @@ struct ClientUi::Impl {
         float lx = strip.left + space / 2;
         for (int i = 0; i < 3; ++i) {
             if (leds[i].second) { canvas.glow(lx + 3, by + 22, 3, 9, t.ledGlow); canvas.fillCircle(lx + 3, by + 22, 3, t.led); }
+            else if (i == 0) { canvas.glow(lx + 3, by + 22, 3, 9, t.ledBadGlow); canvas.fillCircle(lx + 3, by + 22, 3, t.ledBad); } // Auto-fire stopped.
             else canvas.fillCircle(lx + 3, by + 22, 3, t.ledOff);
             canvas.text(leds[i].first, sans(10.5f, 500), lx + 12, by + 22, leds[i].second ? t.text2 : t.caseEtch);
             lx += widths[i] + space;
@@ -1020,20 +1175,33 @@ struct ClientUi::Impl {
         const auto& t = theme();
         canvas.fill(box(0, 760, kW, 40), t.bar); canvas.fill(box(0, 760, kW, 1), t.line);
         const float cy = 780;
-        if (running) { canvas.glow(43.5f, cy, 3.5f, 11.5f, t.ledGlow); canvas.fillCircle(43.5f, cy, 3.5f, t.led); }
-        else canvas.fillCircle(43.5f, cy, 3.5f, t.ledOff);
+        // Green while running, red while the auto-fire is stopped.
+        canvas.glow(43.5f, cy, 3.5f, 11.5f, running ? t.ledGlow : t.ledBadGlow);
+        canvas.fillCircle(43.5f, cy, 3.5f, running ? t.led : t.ledBad);
         canvas.text(running ? L"运行中 · 仅 DNF 前台生效" : L"连发未启动", sans(12), 55, cy, t.text2);
         float x = 276;
         const Font f = sans(12);
         const std::wstring key = hoveredKey();
         if (!message.empty()) {
+            const float a = motion.value(AnimMessage, 1.f, 240);
+            canvas.setLayer(a, (a - 1.f) * 10.f, 0.f);
             canvas.text(message, f, x, cy, messageError ? t.danger : (messageHint ? t.combo : t.text2), Align::Left, 780);
+            canvas.resetLayer();
         } else if (capture.id == IdQuickChip) {
             canvas.text(L"按下新的游戏内切换热键，可带 Ctrl / Alt / Shift，例如 Alt + PgUp · Esc 取消", f, x, cy, t.text2);
         } else if (capture) {
             canvas.text(L"按下要绑定的按键 · 右键清除 · Esc 取消", f, x, cy, t.text2);
         } else if (hover == IdQuickChip) {
             canvas.text(L"点击修改游戏内快速切换方案的热键", f, x, cy, t.text2);
+        } else if (hover == IdToolbox) {
+            canvas.text(L"游戏工具箱：禁用无用组件、清理日志缓存、修复黑屏（原 DNF专用工具箱 8.0）", f, x, cy, t.text2);
+        } else if (hover >= ToolboxPanel::kIdBase && hover < ToolboxPanel::kIdEnd && !toolboxPanel.hoverText(hover).empty()) {
+            canvas.text(toolboxPanel.hoverText(hover), f, x, cy, t.text2, Align::Left, 780);
+        } else if (hover == IdService) {
+            const auto svc = servicePanel.summary();
+            canvas.text(L"后台服务" + svc.state + L"：" + svc.detail + L" · 点击打开服务管理", f, x, cy, t.text2, Align::Left, 780);
+        } else if (hover >= ServicePanel::kIdBase && hover < ServicePanel::kIdEnd && !servicePanel.hoverText(hover).empty()) {
+            canvas.text(servicePanel.hoverText(hover), f, x, cy, t.text2, Align::Left, 780);
         } else if (!key.empty()) {
             const bool on = keyOn(key);
             const Occupied occ = occupied(key);
@@ -1060,36 +1228,58 @@ struct ClientUi::Impl {
         hit(r, id, std::move(click), std::move(right));
     }
     void sectionTitle(float y, const std::wstring& text) { canvas.text(text, sans(12, 500), 864, y + 8.7f, theme().text2); }
-    void paintDrawer() {
+    void paintDrawer(float progress) {
         const auto& t = theme();
+        const Drawer d = shownDrawer;
+        // Scrim fades; the sheet slides in from the right edge. While closing nothing is clickable.
+        suppressHits = drawer == Drawer::None;
+        canvas.setLayer(progress);
         canvas.fill(box(0, 44, kW, kH - 44), t.scrim);
         hit(box(0, 44, kW, kH - 44), IdScrim, [this] { openDrawer(Drawer::None); });
+        drawerDx = (1.f - progress) * 440.f;
+        hitDx = drawerDx;
+        canvas.setLayer(1.f, drawerDx, 0.f);
+        scroll = motion.value(AnimScroll, scrollTarget, 220);
         const auto sheet = box(840, 44, 440, kH - 44);
         canvas.shadow(sheet, 0, t.shadow, 0, 48);
         canvas.fill(sheet, t.surface); canvas.fill(box(840, 44, 1, kH - 44), t.line);
         hit(sheet, IdSheet, [] {});
-        const std::pair<const wchar_t*, Color> heads[] = {{L"", t.text3}, {L"职业辅助", t.cls}, {L"一键连招", t.combo}, {L"一键奔跑", t.run}, {L"软件设置", t.text3}};
-        const auto& head = heads[int(drawer)];
+        const std::pair<const wchar_t*, Color> heads[] = {{L"", t.text3}, {L"职业辅助", t.cls}, {L"一键连招", t.combo}, {L"一键奔跑", t.run},
+            {L"软件设置", t.text3}, {L"服务管理", t.focus}, {L"游戏工具箱", t.combo}};
+        const auto& head = heads[int(d)];
+        const float contentAlpha = motion.value(AnimDrawerContent, 1.f, 220);
         canvas.fill(box(840, 107, 440, 1), t.line);
+        canvas.setLayer(contentAlpha, drawerDx, 0.f);
         canvas.fillRound(box(864, 71, 10, 10), 2, head.second);
         canvas.text(head.first, sans(16, 600), 884, 76, t.text);
+        canvas.setLayer(1.f, drawerDx, 0.f);
         iconButton(IdSheetClose, 1232, 60, Icon::Close, [this] { openDrawer(Drawer::None); });
-        if (drawer == Drawer::Combo) toggleSwitch(IdSheetSwitch, 1180, 66, profile.combo, [this] { profile.combo = !profile.combo; changed(); });
-        if (drawer == Drawer::Run) toggleSwitch(IdSheetSwitch, 1180, 66, options.oneKeyRun.enabled, [this] { options.oneKeyRun.enabled = !options.oneKeyRun.enabled; changed(); });
+        if (d == Drawer::Combo) toggleSwitch(IdSheetSwitch, 1180, 66, profile.combo, [this] { profile.combo = !profile.combo; changed(); });
+        if (d == Drawer::Run) toggleSwitch(IdSheetSwitch, 1180, 66, options.oneKeyRun.enabled, [this] { options.oneKeyRun.enabled = !options.oneKeyRun.enabled; changed(); });
         canvas.pushClip(body());
-        clipHits = true; hitClip = body();
+        canvas.setLayer(contentAlpha, drawerDx, (1.f - contentAlpha) * 10.f);
+        clipHits = true; hitClip = body(); // hit() shifts both the area and this clip by hitDx.
         const float top = 132 - scroll;
         float bottom = top;
-        switch (drawer) {
+        switch (d) {
         case Drawer::Combo: bottom = paintComboDrawer(top); break;
         case Drawer::Run: bottom = paintRunDrawer(top); break;
         case Drawer::Class: bottom = paintClassDrawer(top); break;
         case Drawer::Settings: bottom = paintSettingsDrawer(top); break;
+        case Drawer::Service: bottom = servicePanel.paint(*this, top); break;
+        case Drawer::Toolbox: bottom = toolboxPanel.paint(*this, top); break;
         case Drawer::None: break;
         }
         clipHits = false;
+        canvas.setLayer(1.f, drawerDx, 0.f);
         canvas.popClip();
         contentHeight = bottom - top + 48;
+        // Content that shrank (e.g. a closed combo) pulls the scroll position back smoothly.
+        scrollTarget = std::clamp(scrollTarget, 0.f, std::max(0.f, contentHeight - 692.f));
+        if (d == Drawer::Service) servicePanel.paintOverlay(*this);
+        canvas.resetLayer();
+        hitDx = drawerDx = 0.f;
+        suppressHits = false;
     }
     float paintComboDrawer(float y) {
         const auto& t = theme();
@@ -1200,9 +1390,14 @@ struct ClientUi::Impl {
         directionField(1, cx + 70, y + 42, L"下"); directionField(3, cx + 140, y + 42, L"右");
         const auto seg = box(1088, y, 168, 36);
         canvas.fillRound(seg, 9, t.surface2); canvas.insetRing(seg, 9, t.line, 1);
+        {
+            // The selected pill slides between "所有方案" and "仅本方案".
+            const float k = motion.value(AnimRunScope, profile.usePresetRunKeys ? 1.f : 0.f, 180);
+            const auto pill = box(lerp(1091, 1172, k), y + 3, 81, 30);
+            canvas.shadow(pill, 7, rgb(0, .18f), 1, 2); canvas.fillRound(pill, 7, t.surface); canvas.ring(pill, 7, t.line2, 1);
+        }
         const auto segButton = [&](int id, float x, const std::wstring& label, bool selected, bool perProfile) {
             const auto r = box(x, y + 3, 81, 30);
-            if (selected) { canvas.shadow(r, 7, rgb(0, .18f), 1, 2); canvas.fillRound(r, 7, t.surface); canvas.ring(r, 7, t.line2, 1); }
             canvas.text(label, sans(12.5f), x + 40.5f, y + 18, selected ? t.text : (hovered(id) ? t.text : t.text2), Align::Center);
             bodyHit(r, id, [this, perProfile] { setRunScope(perProfile); });
         };
@@ -1364,7 +1559,7 @@ struct ClientUi::Impl {
         };
         sectionTitle(y, L"启动"); y += 27.4f;
         group(y, 81);
-        switchRow(y + .5f, L"打开后直接开始连发，窗口隐藏到托盘", IdAutoSw, options.autoStart, true);
+        switchRow(y + .5f, L"运行后自动隐藏到托盘", IdAutoSw, options.autoStart, true);
         switchRow(y + 40.5f, L"登录 Windows 时运行", IdLoginSw, options.onSystemStart, false);
         y += 81 + 24;
         sectionTitle(y, L"游戏内"); y += 27.4f;
@@ -1390,6 +1585,85 @@ struct ClientUi::Impl {
         return y + 65;
     }
 
+    // ---------------------------------------------------------------- UiHost (service drawer)
+    Canvas& uiCanvas() override { return canvas; }
+    const Theme& uiTheme() const override { return theme(); }
+    void uiHit(const D2D1_RECT_F& r, int id, std::function<void()> click) override { hit(r, id, std::move(click)); }
+    bool uiHovered(int id) const override { return hovered(id); }
+    void uiSwitch(int id, float x, float y, bool on, std::function<void()> click) override { toggleSwitch(id, x, y, on, std::move(click)); }
+    void uiStepper(int idDec, int idInc, float x, float y, float w, const std::wstring& value,
+                   std::function<void()> dec, std::function<void()> inc) override {
+        stepper(idDec, idInc, x, y, w, value, std::move(dec), std::move(inc));
+    }
+    void uiSection(float y, const std::wstring& title) override { sectionTitle(y, title); }
+    float uiLink(int id, float x, float cy, const std::wstring& label, std::function<void()> click) override {
+        return link(id, x, cy, label, std::move(click), false);
+    }
+    void uiTextField(int id, const D2D1_RECT_F& r, const std::wstring& value, const std::wstring& placeholder,
+                     TextCommit commit, TextChange change) override {
+        const auto& t = theme();
+        const bool active = editing == Edit::Text && textId == id;
+        canvas.fillRound(r, 8, t.surface);
+        canvas.insetRing(r, 8, active ? t.accent : (hovered(id) ? t.text3 : t.line2), 1);
+        const float cy = (r.top + r.bottom) / 2;
+        if (active) {
+            if (!IsWindowVisible(textEdit)) placeEditor(textEdit, D2D1::RectF(r.left + 8, cy - 10, r.right - 8, cy + 10), value);
+            return;
+        }
+        const bool empty = value.empty();
+        canvas.text(empty ? placeholder : value, empty ? sans(12.5f) : mono(12.5f), r.left + 10, cy, empty ? t.text3 : t.text, Align::Left, r.right - r.left - 20);
+        hit(r, id, [this, id, commit, change] { uiFocusText(id, commit, change); });
+    }
+    void uiFocusText(int id, TextCommit commit, TextChange change) override {
+        cancelCapture(); commitEdit();
+        editing = Edit::Text; textId = id; textCommit = std::move(commit); textChange = std::move(change);
+        invalidate(); UpdateWindow(main); // Layout places the editor.
+    }
+    void uiCancelText() override { if (editing == Edit::Text) cancelEdit(); }
+    void uiMessage(const std::wstring& text, bool error) override { showMessage(text, error); }
+    void uiHint(const std::wstring& text) override { showHint(text); }
+    void uiInvalidate() override { invalidate(); }
+    HWND uiWindow() const override { return main; }
+    void uiScheduleServiceSave() override { if (main) SetTimer(main, kServiceSaveTimer, kSaveDelayMs, nullptr); }
+    void uiQuit() override { quit(); }
+    float uiButtonWidth(const std::wstring& label) override { return canvas.textWidth(label, sans(13, 500)) + 28; }
+    float uiButton(int id, float x, float y, const std::wstring& label, ButtonStyle style, std::function<void()> click) override {
+        const auto& t = theme();
+        const float w = uiButtonWidth(label);
+        const auto r = box(x, y, w, 32);
+        const float h = motion.value(AnimHover + id, hovered(id) ? 1.f : 0.f, 120);
+        Color fg = t.text;
+        if (style == ButtonStyle::Primary) {
+            canvas.fillRound(r, 8, mix(t.accent, mix(t.accent, t.onAccent, .12f), h));
+            fg = t.onAccent;
+        } else if (style == ButtonStyle::Danger) {
+            Color soft = t.danger; soft.a = (t.dark ? .14f : .10f) * h;
+            canvas.fillRound(r, 8, t.surface); canvas.fillRound(r, 8, soft); canvas.insetRing(r, 8, mix(t.line2, t.danger, h), 1);
+            fg = t.danger;
+        } else {
+            canvas.fillRound(r, 8, mix(t.surface, t.surface3, h)); canvas.insetRing(r, 8, t.line2, 1);
+        }
+        canvas.text(label, sans(13, 500), x + w / 2, y + 16, fg, Align::Center);
+        hit(r, id, std::move(click));
+        return w;
+    }
+    float uiAnim(int key, float target, float ms) override { return motion.value(key, target, ms); }
+    void uiLayer(float opacity, float dy) override { canvas.setLayer(opacity, drawerDx, dy); }
+    void uiHitsEnabled(bool enabled) override { overlayHitsOff = !enabled; }
+    void uiSpinner(float x, float cy) override {
+        const auto& t = theme();
+        static LARGE_INTEGER frequency = [] { LARGE_INTEGER f{}; QueryPerformanceFrequency(&f); return f; }();
+        LARGE_INTEGER now{}; QueryPerformanceCounter(&now);
+        const double phase = std::fmod(double(now.QuadPart) / double(frequency.QuadPart), 0.9) / 0.9;
+        for (int i = 0; i < 3; ++i) {
+            const double p = std::fmod(phase - i * 0.16 + 1.0, 1.0);
+            const float a = 0.3f + 0.7f * float(std::max(0.0, std::sin(p * 3.14159265)));
+            Color c = t.accent; c.a *= a;
+            canvas.fillCircle(x + 3 + i * 9.f, cy, 2.6f, c);
+        }
+        motion.keepAlive();
+    }
+
     // ---------------------------------------------------------------- quick switch
     void invalidateQuick() { if (quick) InvalidateRect(quick, nullptr, FALSE); }
     float quickHeight() const {
@@ -1399,6 +1673,7 @@ struct ClientUi::Impl {
     void paintQuick() {
         const auto& t = darkTheme();
         if (!quickCanvas.begin(t.surface)) return;
+        auxMotion.beginFrame();
         const float w = 360, h = quickHeight();
         quickCanvas.insetRing(box(0, 0, w, h), 0, t.line2, 1);
         quickCanvas.text(L"切换方案", sans(14, 600), 18, 26, t.text);
@@ -1409,13 +1684,19 @@ struct ClientUi::Impl {
         quickCanvas.text(label, mono(11), kr.left + 7, 25, t.text);
         quickCanvas.fill(box(0, 52, w, 1), t.line);
         const size_t rows = std::min<size_t>(names.size(), 8);
+        {
+            // The selection glides between rows as ↑ / ↓ are pressed.
+            const float sy = auxMotion.value(AnimQuickSel, 62 + float(quickSel - quickScroll) * 50.f, 130);
+            const auto rr = box(10, sy, 340, 46);
+            quickCanvas.pushClip(box(0, 53, w, h - 46 - 53));
+            quickCanvas.fillRound(rr, 10, t.surface2); quickCanvas.ring(rr, 10, t.accent, 1.5f);
+            quickCanvas.popClip();
+        }
         for (size_t r = 0; r < rows; ++r) {
             const size_t i = r + size_t(quickScroll);
             if (i >= names.size()) break;
             const float y = 62 + r * 50.f;
             const bool sel = int(i) == quickSel, current = names[i] == profile.name;
-            const auto rr = box(10, y, 340, 46);
-            if (sel) { quickCanvas.fillRound(rr, 10, t.surface2); quickCanvas.ring(rr, 10, t.accent, 1.5f); }
             if (current && running) { quickCanvas.glow(27, y + 23, 3, 10, t.ledGlow); quickCanvas.fillCircle(27, y + 23, 3, t.led); }
             else quickCanvas.fillCircle(27, y + 23, 3, current ? t.led : t.ledOff);
             float right = 336;
@@ -1439,6 +1720,8 @@ struct ClientUi::Impl {
         };
         hintKey(L"↑↓", L"选择"); hintKey(L"Enter", L"切换并启动"); hintKey(L"Esc", L"关闭");
         quickCanvas.end();
+        quickPending = auxMotion.pending();
+        if (quickPending) ensureAuxFrames();
     }
     void showQuick() {
         commitEdit();
@@ -1455,6 +1738,8 @@ struct ClientUi::Impl {
         SetWindowPos(quick, HWND_TOPMOST, wa.left + (wa.right - wa.left - w) / 2, wa.top + (wa.bottom - wa.top - h) / 2, w, h, SWP_NOACTIVATE);
         quickCanvas.resize(UINT(w), UINT(h));
         ShowWindow(main, SW_HIDE);
+        auxMotion.jump(AnimQuickSel, 62 + float(quickSel - quickScroll) * 50.f);
+        startFade(quick, AnimQuickFade); // Fades in instead of popping up.
         ShowWindow(quick, SW_SHOW); SetForegroundWindow(quick); SetFocus(quick);
         invalidateQuick(); updateAnimation();
     }
@@ -1479,6 +1764,7 @@ struct ClientUi::Impl {
     void show() {
         if (quick) ShowWindow(quick, SW_HIDE);
         refreshNames();
+        servicePanel.refresh();
         ShowWindow(main, IsIconic(main) ? SW_RESTORE : SW_SHOW);
         SetForegroundWindow(main); SetFocus(main);
         updateAnimation(); invalidate();
@@ -1495,6 +1781,7 @@ struct ClientUi::Impl {
         editBrush = CreateSolidBrush(colorref(t.surface));
         if (nameEdit) InvalidateRect(nameEdit, nullptr, TRUE);
         if (numberEdit) InvalidateRect(numberEdit, nullptr, TRUE);
+        if (textEdit) InvalidateRect(textEdit, nullptr, TRUE);
     }
     // ---------------------------------------------------------------- tray menu
     // A themed popup drawn with the same tokens as the main window (replaces the
@@ -1531,6 +1818,7 @@ struct ClientUi::Impl {
         trayHover = -1;
         SetWindowPos(trayMenuWnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
         trayCanvas.resize(UINT(w), UINT(h));
+        startFade(trayMenuWnd, AnimTrayFade);
         ShowWindow(trayMenuWnd, SW_SHOW);
         SetForegroundWindow(trayMenuWnd); SetFocus(trayMenuWnd);
         invalidateTray();
@@ -1551,11 +1839,12 @@ struct ClientUi::Impl {
         const auto& t = theme();
         auto& c = trayCanvas;
         if (!c.begin(t.surface)) return;
+        auxMotion.beginFrame();
         const float w = kTrayMenuW, h = trayMenuHeight();
         c.insetRing(box(0, 0, w, h), 0, t.line2, 1);
         // Header: status LED, product name, state and current profile.
-        if (running) { c.glow(22, 31, 3.5f, 11.5f, t.ledGlow); c.fillCircle(22, 31, 3.5f, t.led); }
-        else c.fillCircle(22, 31, 3.5f, t.ledOff);
+        c.glow(22, 31, 3.5f, 11.5f, running ? t.ledGlow : t.ledBadGlow); // Green running, red stopped.
+        c.fillCircle(22, 31, 3.5f, running ? t.led : t.ledBad);
         c.text(L"DAF 连发工具", sans(13, 600), 36, 22, t.text);
         const std::wstring state = running ? L"运行中" : L"连发未启动";
         const Font small = sans(11.5f);
@@ -1566,7 +1855,8 @@ struct ClientUi::Impl {
             const auto r = trayItemRect(i);
             const bool hot = trayHover == i, exit = kTrayItems[i] == TrayExit;
             Color exitSoft = t.danger; exitSoft.a = t.dark ? .14f : .10f;
-            if (hot) c.fillRound(r, 8, exit ? exitSoft : t.surface2);
+            Color hotBg = exit ? exitSoft : t.surface2; hotBg.a *= auxMotion.value(AnimHover + 9000 + i, hot ? 1.f : 0.f, 110);
+            c.fillRound(r, 8, hotBg);
             const float cy = (r.top + r.bottom) / 2;
             const Color fg = exit && hot ? t.danger : t.text;
             switch (kTrayItems[i]) {
@@ -1597,6 +1887,8 @@ struct ClientUi::Impl {
         const float sepY = trayItemRect(2).bottom + kTraySep / 2;
         c.fill(box(12, sepY, w - 24, 1), t.line);
         c.end();
+        trayPending = auxMotion.pending();
+        if (trayPending) ensureAuxFrames();
     }
     LRESULT trayProc(UINT message, WPARAM wParam, LPARAM lParam) {
         switch (message) {
@@ -1662,6 +1954,8 @@ struct ClientUi::Impl {
             if (menu && id != IdMore && id != IdMenuPanel && id != IdMenuRename && id != IdMenuClone && id != IdMenuDelete) { menu = false; confirmDelete = false; }
             if (overflow && id != IdOverflow && id != IdMenuPanel && !(id >= IdOverflowItem && id < IdOverflowItem + 256)) overflow = false;
             if (ext && id != IdExt && id != IdExtPanel && !(id >= IdExtKey && id < IdExtKey + 12)) ext = false;
+            if (id != ServicePanel::kUninstallId) servicePanel.cancelConfirm();
+            toolboxPanel.cancelConfirm(id);
             pressed = id; SetCapture(main); SetFocus(main); invalidate();
             break;
         case WM_LBUTTONUP: {
@@ -1718,20 +2012,35 @@ struct ClientUi::Impl {
             return 0;
         case WM_MOUSELEAVE: if (self->hover != -1) { self->hover = -1; self->invalidate(); } return 0;
         case WM_MOUSEWHEEL:
+            if (self->drawer == Drawer::Service && self->servicePanel.wheel(float(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA)) {
+                self->invalidate(); return 0;
+            }
             if (self->drawer != Drawer::None) {
                 self->commitEdit();
                 const float delta = float(GET_WHEEL_DELTA_WPARAM(wParam)) / WHEEL_DELTA * 48.f;
                 const float maxScroll = std::max(0.f, self->contentHeight - 692.f);
-                self->scroll = std::clamp(self->scroll - delta, 0.f, maxScroll);
+                self->scrollTarget = std::clamp(self->scrollTarget - delta, 0.f, maxScroll); // Smooth scrolling.
                 self->invalidate();
             }
             return 0;
         case WM_TIMER:
             if (wParam == kSaveTimer) self->flush();
+            else if (wParam == kServiceSaveTimer) { KillTimer(window, kServiceSaveTimer); self->servicePanel.flush(*self); }
+            else if (wParam == kServiceTimer) { if (IsWindowVisible(window) && !IsIconic(window) && self->servicePanel.refresh()) self->invalidate(); }
+            else if (wParam == kFrameTimer) self->invalidate();
+            else if (wParam == kAuxTimer) self->auxTick();
             else if (wParam == kAnimTimer) { self->invalidate(); if (self->quick && IsWindowVisible(self->quick)) self->invalidateQuick(); }
             return 0;
+        case kServiceDoneMessage: self->servicePanel.finish(*self); return 0;
+        case kToolboxDoneMessage: self->toolboxPanel.finish(*self); return 0;
         case WM_COMMAND:
-            if (HIWORD(wParam) == EN_KILLFOCUS && (reinterpret_cast<HWND>(lParam) == self->nameEdit || reinterpret_cast<HWND>(lParam) == self->numberEdit))
+            if (HIWORD(wParam) == EN_CHANGE && reinterpret_cast<HWND>(lParam) == self->textEdit && self->editing == Edit::Text && self->textChange) {
+                auto change = self->textChange;
+                change(self->editorText(self->textEdit));
+                return 0;
+            }
+            if (HIWORD(wParam) == EN_KILLFOCUS && (reinterpret_cast<HWND>(lParam) == self->nameEdit || reinterpret_cast<HWND>(lParam) == self->numberEdit ||
+                                                   reinterpret_cast<HWND>(lParam) == self->textEdit))
                 self->commitEdit();
             return 0;
         case WM_CTLCOLOREDIT: {
@@ -1773,11 +2082,11 @@ struct ClientUi::Impl {
         }
         return DefWindowProcW(quick, message, wParam, lParam);
     }
-    HWND makeEdit(bool numeric) {
+    HWND makeEdit(bool numeric, unsigned limit = 0) {
         const DWORD style = WS_CHILD | ES_AUTOHSCROLL | (numeric ? ES_NUMBER | ES_RIGHT : 0);
         HWND edit = CreateWindowExW(0, L"EDIT", L"", style, 0, 0, 10, 10, main, nullptr, instance, nullptr);
         SendMessageW(edit, WM_SETFONT, reinterpret_cast<WPARAM>(numeric ? monoFont : sansFont), FALSE);
-        SendMessageW(edit, EM_SETLIMITTEXT, numeric ? 5 : 40, 0);
+        SendMessageW(edit, EM_SETLIMITTEXT, limit ? limit : numeric ? 5 : 40, 0);
         return edit;
     }
     bool create(bool visible) {
@@ -1818,11 +2127,11 @@ struct ClientUi::Impl {
         const MARGINS margins{0, 0, 0, 1};
         DwmExtendFrameIntoClientArea(main, &margins);
         SetWindowPos(main, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-        quick = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"DAF.Native.QuickSwitch", L"切换方案", WS_POPUP,
+        quick = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, L"DAF.Native.QuickSwitch", L"切换方案", WS_POPUP,
             0, 0, int(360 * scale), int(400 * scale), main, nullptr, instance, this);
         const DWORD round = 2; // DWMWCP_ROUND on Windows 11; ignored elsewhere.
         if (quick) DwmSetWindowAttribute(quick, static_cast<DWMWINDOWATTRIBUTE>(33), &round, sizeof(round));
-        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"DAF.Native.TrayMenu", L"DAF 连发工具", WS_POPUP,
+        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, L"DAF.Native.TrayMenu", L"DAF 连发工具", WS_POPUP,
             0, 0, int(kTrayMenuW * scale), int(trayMenuHeight() * scale), main, nullptr, instance, this); // Sets trayMenuWnd.
         if (trayMenuWnd) {
             const DWORD small = 3; // DWMWCP_ROUNDSMALL, the Windows 11 menu radius; ignored elsewhere.
@@ -1832,11 +2141,17 @@ struct ClientUi::Impl {
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, Fonts::gdiFamily(Face::Sans));
         monoFont = CreateFontW(-int(std::lround(12.5f * scale)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH, Fonts::gdiFamily(Face::Mono));
-        nameEdit = makeEdit(false); numberEdit = makeEdit(true);
+        nameEdit = makeEdit(false); numberEdit = makeEdit(true); textEdit = makeEdit(false, 260);
         applyEditColors();
         canvas.attach(main, scale);
+        // Layered (alpha-faded) popups start fully opaque; startFade() animates them in.
+        if (quick) SetLayeredWindowAttributes(quick, 0, 255, LWA_ALPHA);
+        if (trayMenuWnd) SetLayeredWindowAttributes(trayMenuWnd, 0, 255, LWA_ALPHA);
         if (quick) quickCanvas.attach(quick, scale);
         if (trayMenuWnd) trayCanvas.attach(trayMenuWnd, scale);
+        servicePanel.load();
+        servicePanel.refresh();
+        SetTimer(main, kServiceTimer, 2000, nullptr);
         setRunning(false);
         if (visible) addTray();
         visibleUi = visible;
@@ -1869,12 +2184,36 @@ void ClientUi::toggleRun() {
 }
 void ClientUi::setRunning(bool running) { impl_->setRunning(running); }
 void ClientUi::setStatus(const std::wstring& text) { impl_->showMessage(text, true); }
+void ClientUi::showHint(const std::wstring& text) { impl_->showHint(text); }
+void ClientUi::quit() {
+    try { impl_->quit(); } catch (...) { if (impl_->callbacks.quit) impl_->callbacks.quit(); }
+}
+const ServiceOptions& ClientUi::serviceOptions() const { return impl_->servicePanel.options(); }
+bool ClientUi::addServiceItem(int list, const std::wstring& value) {
+    std::wstring error;
+    const bool added = impl_->servicePanel.addItem(list, value, error);
+    if (!error.empty()) impl_->showMessage(error, !added);
+    return added;
+}
+bool ClientUi::removeServiceItem(int list, size_t index) { return impl_->servicePanel.removeItem(list, index); }
+bool ClientUi::flushService() { return impl_->servicePanel.flush(*impl_); }
+void ClientUi::openServicePage() { impl_->openDrawer(Drawer::Service); }
+std::wstring ClientUi::serviceNotice() const { return impl_->servicePanel.notice(); }
 bool ClientUi::processMessage(MSG& message) {
     auto& ui = *impl_;
     const bool key = message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN;
-    if ((message.hwnd == ui.nameEdit || message.hwnd == ui.numberEdit) && message.message == WM_KEYDOWN) {
-        if (message.wParam == VK_RETURN || message.wParam == VK_TAB) { ui.commitEdit(); return true; }
-        if (message.wParam == VK_ESCAPE) { ui.cancelEdit(); return true; }
+    if ((message.hwnd == ui.nameEdit || message.hwnd == ui.numberEdit || message.hwnd == ui.textEdit) && message.message == WM_KEYDOWN) {
+        if (message.wParam == VK_RETURN || message.wParam == VK_TAB) {
+            ui.textSubmitted = message.wParam == VK_RETURN && message.hwnd == ui.textEdit;
+            ui.commitEdit();
+            ui.textSubmitted = false;
+            return true;
+        }
+        if (message.wParam == VK_ESCAPE) {
+            // Esc in the process picker's search box closes the whole picker.
+            if (!(message.hwnd == ui.textEdit && ui.drawer == Drawer::Service && ui.servicePanel.escape(ui))) ui.cancelEdit();
+            return true;
+        }
         return false;
     }
     if (message.hwnd != ui.main) return false;
@@ -1884,6 +2223,7 @@ bool ClientUi::processMessage(MSG& message) {
     }
     if (message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE) {
         if (ui.menu || ui.overflow || ui.ext) { ui.menu = ui.overflow = ui.ext = ui.confirmDelete = false; ui.invalidate(); }
+        else if (ui.drawer == Drawer::Service && ui.servicePanel.escape(ui)) {}
         else if (ui.drawer != Drawer::None) ui.openDrawer(Drawer::None);
         else { ui.flush(); ShowWindow(ui.main, SW_HIDE); ui.updateAnimation(); }
         return true;

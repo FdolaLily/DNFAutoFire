@@ -1,7 +1,9 @@
 #Requires -RunAsAdministrator
-param([string]$ExpectedHash, [string]$Version = '0.2.0.0', [string]$Source = '')
+param([string]$ExpectedHash, [string]$Version = '', [string]$Source = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+# Default to the current version (root Version file, kept in step by build.ps1 / bump-version.ps1).
+if (!$Version) { $Version = @(& (Join-Path $PSScriptRoot 'bump-version.ps1') -Check)[-1] }
 $distExe = Join-Path $root 'dist\DNFAutoFire.exe'
 if (!$Source) { $Source = $distExe }
 $source = [IO.Path]::GetFullPath($Source)
@@ -9,9 +11,18 @@ $deploy = 'E:\autokill\DNFAutoFire.exe'
 $managerDir = 'D:\workspace\AutoManagerProcess'
 $managerExe = Join-Path $managerDir 'DNFAutoFire.exe'
 $reportPath = Join-Path $root "build\publish-$Version-result.json"
-$result = [ordered]@{ Success = $false; Version = $Version; SelfTestExitCode = $null; ConfigUnchanged = $false; Stopped = @(); Restarted = @(); Copies = @(); SingletonChecks = @(); Commit = ''; Error = '' }
+$result = [ordered]@{ Success = $false; Version = $Version; SelfTestExitCode = $null; ConfigUnchanged = $false; ConfigMigrated = $false; Service = @{}; Stopped = @(); Restarted = @(); Copies = @(); SingletonChecks = @(); Commit = ''; Error = '' }
 $restart = $false
 $replaced = $false
+$serviceRestart = $false
+# The unified EXE also runs as the "DNFAutoFire" Windows service ("<exe>" --service).
+# A service registered for the deployed path locks the file, so it is stopped by the
+# service manager (never by killing the process) and started again afterwards.
+function Get-DeployedService {
+    Get-CimInstance Win32_Service -Filter "Name='DNFAutoFire'" | Where-Object {
+        $_.PathName -and ($_.PathName -replace '^\s*"([^"]+)".*$', '$1') -eq $deploy
+    }
+}
 $backup = Join-Path $root "build\autokill-before-$Version.exe"
 try {
     if (!$ExpectedHash -or (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $ExpectedHash) { throw 'Source hash mismatch' }
@@ -20,7 +31,8 @@ try {
     # Run before examining/stopping clients or writing any installed copy.
     & (Join-Path $PSScriptRoot 'assert-release-security.ps1') -Source $source
     if (!(Test-Path -LiteralPath $deploy) -or !(Test-Path -LiteralPath $managerExe)) { throw 'Expected existing release paths are missing' }
-    $configPath = Join-Path (Split-Path $deploy -Parent) 'config.ini'
+    $configPath = Join-Path (Split-Path $deploy -Parent) 'config.json'
+    $legacyConfigs = @('config.ini', 'appsettings.json') | ForEach-Object { Join-Path (Split-Path $deploy -Parent) $_ } | Where-Object { Test-Path -LiteralPath $_ }
     $configHash = if (Test-Path -LiteralPath $configPath) { (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash } else { '' }
     # Validate the exact static artifact with the same elevated token used by
     # the installed client, before touching an existing process or binary.
@@ -41,6 +53,15 @@ try {
     $allowedPaths = @($deploy, $distExe, $managerExe)
     $targets = @($candidates | Where-Object { $_.ExecutablePath -in $allowedPaths })
     if (@($candidates | Where-Object { $_.ExecutablePath -notin $allowedPaths }).Count) { throw 'An unknown DNFAutoFire path is running; deployment not started' }
+    $service = Get-DeployedService
+    if ($service -and $service.State -ne 'Stopped') {
+        Stop-Service -Name $service.Name -ErrorAction Stop
+        (Get-Service -Name $service.Name).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20))
+        $serviceRestart = $true
+        $result.Service = @{ Name = $service.Name; StoppedPid = $service.ProcessId }
+    }
+    $candidates = @(Get-CimInstance Win32_Process -Filter "Name='DNFAutoFire.exe'")
+    $targets = @($candidates | Where-Object { $_.ExecutablePath -in $allowedPaths })
     $restart = $targets.Count -gt 0
     Copy-Item -LiteralPath $deploy -Destination $backup -Force
     Copy-Item -LiteralPath $managerExe -Destination (Join-Path $root "build\manager-before-$Version.exe") -Force
@@ -69,14 +90,28 @@ try {
         if ($modules.Count) { throw 'Unexpected payload module in static client' }
         $result.Restarted = @(@{ Pid = $new.Id; Path = $started.ExecutablePath; NativeModules = $modules })
     }
+    # Restore the client before the service so a running game cannot make the service
+    # launch another client while the explicit restart is still being verified.
+    if ($serviceRestart) {
+        Start-Service -Name 'DNFAutoFire' -ErrorAction Stop
+        (Get-Service -Name 'DNFAutoFire').WaitForStatus('Running', [TimeSpan]::FromSeconds(15))
+        $running = Get-DeployedService
+        if (!$running -or $running.State -ne 'Running') { throw 'Service did not restart from the deployed path' }
+        $result.Service.RestartedPid = $running.ProcessId
+    }
     if ($source -ne $distExe) { Copy-Item -LiteralPath $source -Destination $distExe -Force }
     Copy-Item -LiteralPath $source -Destination $managerExe -Force
     foreach ($path in @($deploy, $distExe, $managerExe)) {
         if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $ExpectedHash) { throw "Final hash mismatch: $path" }
     }
     $afterConfigHash = if (Test-Path -LiteralPath $configPath) { (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash } else { '' }
-    if ($afterConfigHash -ne $configHash) { throw 'Installed configuration unexpectedly changed during deployment' }
-    $result.ConfigUnchanged = $true
+    $migrated = !$configHash -and $afterConfigHash -and $legacyConfigs.Count -and
+        !@($legacyConfigs | Where-Object { Test-Path -LiteralPath $_ }).Count
+    if ($migrated) {
+        # First start of a 0.3 build merges config.ini / appsettings.json into config.json once.
+        $result.ConfigMigrated = $true
+    } elseif ($afterConfigHash -ne $configHash) { throw 'Installed configuration unexpectedly changed during deployment' }
+    else { $result.ConfigUnchanged = $true }
     $result.Copies += @{ Path = $distExe; SHA256 = $ExpectedHash }
     $result.Copies += @{ Path = $managerExe; SHA256 = $ExpectedHash }
     if ($restart) {
@@ -109,6 +144,10 @@ try {
     $result.Error = $_.Exception.Message
     # Preserve a usable installed EXE if replacement/start fails before the
     # manager copy/commit. Never conceal an incomplete release as success.
+    if ($replaced -and $serviceRestart -and !$result.Service.RestartedPid) {
+        try { Start-Service -Name 'DNFAutoFire' -ErrorAction Stop; $result.Error += '; requested service restart' }
+        catch { $result.Error += '; service restart failed: ' + $_.Exception.Message }
+    }
     if ($replaced -and !$result.Restarted.Count -and $restart) {
         try {
             if (!(Get-CimInstance Win32_Process -Filter "Name='DNFAutoFire.exe'" | Where-Object { $_.ExecutablePath -eq $deploy })) {
