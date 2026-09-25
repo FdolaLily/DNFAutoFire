@@ -68,11 +68,15 @@ void holdAndCancel() {
 }
 void diagonalAndOpposite() {
     Rig rig; rig.key(right, true, 0); rig.key(up, true, 50); rig.tick(140); rig.tick(170);
+    check(!rig.model.isRunning(3) && !rig.model.isRunning(0), "interrupted initial tap cannot confirm diagonal running");
+    rig.tick(200); rig.tick(230);
     check(rig.model.isRunning(3) && rig.model.isRunning(0), "orthogonal chord inherits first axis running session");
-    check(rig.sink.edges.size() == 4, "only the first diagonal axis gets a double tap");
+    check(rig.sink.edges.size() == 6, "first diagonal axis sends a fresh complete double tap");
     Rig late; late.run(); late.key(up, true, 200);
     check(late.model.isRunning(0) && late.model.deadline() == InputModel::never, "late orthogonal axis joins without another timer");
     Rig gap; gap.key(right, true, 0); gap.tick(140); gap.key(up, true, 150); gap.tick(170);
+    check(!gap.model.isRunning(3), "direction added during gap interrupts the initial double tap");
+    gap.tick(200); gap.tick(230);
     check(gap.model.outputDown(right) && gap.model.outputDown(up), "adding diagonal axis during gap cannot strand either axis");
     Rig opposite; opposite.run(left); opposite.key(right, true, 200);
     opposite.edge(3, left, false); opposite.edge(4, right, true);
@@ -92,6 +96,59 @@ void diagonalAndOpposite() {
     Rig same; same.run(left); same.key(up, true, 200); same.key(left, false, 400); same.key(left, true, 600);
     check(same.model.isRunning(2) && same.model.deadline() == InputModel::never, "same-facing horizontal still joins the vertical session");
 }
+void diagonalStartEdges() {
+    // Check the emitted sequence, not just the model's running flags. Every
+    // initial diagonal run needs two consecutive Down edges on the same axis
+    // after the last chord member arrived, with the configured hold and gap.
+    const KeyCode keys[] = {up, down, left, right};
+    for (int first = 0; first < 4; ++first) {
+        for (int second = 0; second < 4; ++second) {
+            if (first / 2 == second / 2) continue;
+            for (unsigned guard : {140U, 150U, 300U}) {
+                for (unsigned join : {0U, 50U, guard - 1, guard + 10, guard + 40, guard + 70}) {
+                    auto plan = movement(); plan.guardMs = guard;
+                    Rig rig(plan); rig.key(keys[first], true, 0);
+                    for (unsigned time = 0; time <= guard + 200; ++time) {
+                        if (time == join) rig.key(keys[second], true, time);
+                        rig.tick(time);
+                        if (time < join || !rig.model.isRunning(first)) continue;
+                        check(rig.model.isRunning(second), "completed diagonal start confirms both axes");
+                        check(rig.model.outputDown(keys[first]) && rig.model.outputDown(keys[second]),
+                            "completed diagonal start holds both movement axes");
+                        // A join after a completed single-axis run deliberately
+                        // inherits it without synthesizing another double tap.
+                        const unsigned singleCompletion = guard + (guard > 250 ? 90 : 30);
+                        if (join < singleCompletion) {
+                            std::vector<FakeSink::Edge> downs;
+                            for (const auto& edge : rig.sink.edges) if (edge.down) downs.push_back(edge);
+                            check(downs.size() >= 4, "diagonal start emits a complete fresh pair");
+                            const auto& penultimate = downs[downs.size() - 2];
+                            const auto& last = downs.back();
+                            check(penultimate.key == keys[first] && last.key == keys[first],
+                                "two final Down edges use one direction without an intervening chord key");
+                            check(penultimate.time >= InputTick(join) * 1000
+                                && last.time - penultimate.time >= InputTick(plan.pressMs + plan.gapMs) * 1000,
+                                "fresh diagonal double tap respects configured press and gap");
+                        }
+                        break;
+                    }
+                    check(rig.model.isRunning(first) && rig.model.isRunning(second), "every chord timing eventually runs");
+                }
+            }
+        }
+    }
+    Rig skill; skill.key(right, true, 0); skill.key(up, true, 50); skill.tick(140);
+    skill.tick(170); skill.key(a, true, 180); skill.tick(1000);
+    check(!skill.model.isRunning(3) && !skill.model.isRunning(0)
+        && skill.model.outputDown(right) && skill.model.outputDown(up), "skill cancels fresh pair while preserving diagonal walking");
+    Rig release; release.key(right, true, 0); release.key(up, true, 50); release.tick(140);
+    release.key(right, false, 150); release.tick(500); release.tick(530); release.tick(560); release.tick(590);
+    check(!release.model.outputDown(right) && release.model.isRunning(0), "releasing leading axis transfers start to remaining held direction");
+    Rig focus; focus.key(right, true, 0); focus.key(up, true, 50); focus.tick(140); focus.tick(170);
+    focus.model.focus(false, 180000); focus.tick(1000);
+    check(!focus.model.outputDown(right) && !focus.model.outputDown(up)
+        && focus.model.deadline() == InputModel::never, "focus loss cancels diagonal pair and releases both axes");
+}
 void commandWindowAndRecovery() {
     Rig sequence; sequence.key(right, true, 0); sequence.key(right, false, 10); sequence.key(up, true, 50);
     sequence.tick(349); check(sequence.sink.edges.size() == 3, "sequential command waits through 350ms command window");
@@ -104,6 +161,109 @@ void commandWindowAndRecovery() {
     check(stale.sink.edges.size() == 3, "other input invalidates stale skill-release recovery");
     Rig ordinary; ordinary.run(); ordinary.key(b, true, 200); ordinary.key(b, false, 220); ordinary.tick(1000);
     check(ordinary.sink.edges.size() == 3, "unmanaged keys cannot initiate synthetic run recovery");
+}
+void alternatingDiagonals() {
+    const KeyCode keys[] = {up, down, left, right};
+    for (bool horizontalFirst : {false, true}) {
+        for (bool releaseHorizontalFirst : {false, true}) {
+            // All keys released first, rolling overlap, and four-key overlap.
+            for (int overlap = 0; overlap < 3; ++overlap) {
+                for (int spacing : {0, 10, 100, 160}) {
+                    Rig rig;
+                    InputTick now = 0;
+                    const auto advance = [&](InputTick until) {
+                        while (now < until) rig.tick(++now);
+                    };
+                    for (int cycle = 0; cycle < 8; ++cycle) {
+                        const int horizontal = cycle % 2 ? 3 : 2;
+                        const int vertical = cycle % 2 ? 1 : 0;
+                        const int first = horizontalFirst ? horizontal : vertical;
+                        const int second = horizontalFirst ? vertical : horizontal;
+                        const int oldFirst = releaseHorizontalFirst ? horizontal ^ 1 : vertical ^ 1;
+                        const int oldSecond = releaseHorizontalFirst ? vertical ^ 1 : horizontal ^ 1;
+                        const auto start = now;
+                        if (cycle && overlap == 0) {
+                            rig.key(keys[oldFirst], false, now); rig.key(keys[oldSecond], false, now);
+                        }
+                        rig.key(keys[first], true, now);
+                        advance(start + spacing);
+                        if (cycle && overlap == 1) rig.key(keys[oldFirst], false, now);
+                        rig.key(keys[second], true, now);
+                        if (cycle && overlap) {
+                            advance(now + 10);
+                            rig.key(keys[oldFirst], false, now); rig.key(keys[oldSecond], false, now);
+                        }
+                        advance(now + 500);
+                        check(rig.model.isRunning(horizontal) && rig.model.isRunning(vertical),
+                            "alternating opposite diagonals confirms both new axes");
+                        check(rig.model.outputDown(keys[horizontal]) && rig.model.outputDown(keys[vertical])
+                            && !rig.model.outputDown(keys[horizontal ^ 1]) && !rig.model.outputDown(keys[vertical ^ 1]),
+                            "rolling diagonal change holds only the two current axes");
+                        bool paired = false;
+                        KeyCode last = 0;
+                        for (const auto& edge : rig.sink.edges) {
+                            if (!edge.down || edge.time < start * 1000) continue;
+                            if (last == edge.key && (last == keys[horizontal] || last == keys[vertical])) paired = true;
+                            last = edge.key;
+                        }
+                        check(paired, "each opposite diagonal switch actually emits an uninterrupted double tap");
+                    }
+                }
+            }
+        }
+    }
+}
+void rapidAlternatingDiagonals() {
+    // Switch again before the previous confirmation/pulse finished, then
+    // settle. Rolling overlap must not leave stale suppression or run flags.
+    for (bool horizontalFirst : {false, true}) {
+        for (InputTick dwell : {20, 70, 120, 180, 250}) {
+            Rig rig;
+            InputTick now = 0;
+            for (int cycle = 0; cycle < 20; ++cycle) {
+                const auto horizontal = cycle % 2 ? right : left;
+                const auto vertical = cycle % 2 ? down : up;
+                rig.key(horizontalFirst ? horizontal : vertical, true, now);
+                rig.tick(++now);
+                rig.key(horizontalFirst ? vertical : horizontal, true, now);
+                if (cycle) {
+                    rig.key(cycle % 2 ? left : right, false, now);
+                    rig.key(cycle % 2 ? up : down, false, now);
+                }
+                const auto until = now + dwell;
+                while (now < until) rig.tick(++now);
+            }
+            const auto until = now + 500;
+            while (now < until) rig.tick(++now);
+            check(rig.model.isRunning(3) && rig.model.isRunning(1), "rapid repeated diagonals eventually run on final held chord");
+            check(rig.model.outputDown(right) && rig.model.outputDown(down)
+                && !rig.model.outputDown(left) && !rig.model.outputDown(up), "rapid repeated diagonals retain no old output axis");
+            rig.model.focus(false, now * 1000);
+            check(!rig.model.outputDown(right) && !rig.model.outputDown(down), "rapid diagonal cancellation releases current chord");
+        }
+    }
+    Rig paused; paused.run(left); paused.key(left, false, 300);
+    paused.key(up, true, 1000); paused.key(right, true, 1050);
+    for (InputTick time = 1050; time <= 1600; ++time) paused.tick(time);
+    check(paused.model.isRunning(0) && paused.model.isRunning(3),
+        "vertical-first reversal after the old session expires keeps a pending start owner");
+}
+void customMovementTiming() {
+    auto plan = movement(); plan.guardMs = 1; plan.pressMs = 1; plan.gapMs = 1;
+    Rig fast(plan); fast.key(right, true, 0);
+    check(fast.model.deadline() == 1000, "1ms guard is not raised to 140ms");
+    fast.tick(1); fast.tick(2);
+    check(fast.model.isRunning(3), "positive custom guard and gap are used by the actual state machine");
+    plan.guardMs = 2000; plan.pressMs = 3000; plan.gapMs = 4000;
+    Rig slow(plan); slow.key(right, true, 0);
+    check(slow.model.deadline() == 2000000, "guard beyond 1000ms is preserved");
+    slow.tick(2000);
+    check(slow.model.deadline() == 6000000, "gap beyond 1000ms is preserved");
+    slow.tick(6000);
+    check(slow.model.deadline() == 9000000, "pulse beyond 1000ms is preserved");
+    plan.guardMs = (std::numeric_limits<unsigned>::max)();
+    Rig large(plan); large.key(right, true, 0);
+    check(large.model.deadline() == InputTick(plan.guardMs) * 1000, "millisecond conversion cannot overflow at storage maximum");
 }
 void focusAndIdentity() {
     Rig rig; rig.run(); rig.model.focus(false, 200000); rig.tick(1000);
@@ -210,7 +370,8 @@ void physicalPairingAcrossFocusAndRestart() {
 }
 } // namespace
 int main() {
-    holdAndCancel(); diagonalAndOpposite(); commandWindowAndRecovery(); focusAndIdentity();
+    alternatingDiagonals(); rapidAlternatingDiagonals(); customMovementTiming();
+    holdAndCancel(); diagonalAndOpposite(); diagonalStartEdges(); commandWindowAndRecovery(); focusAndIdentity();
     comboTimingAndCancellation(); comboContentionAndFailures(); randomizedLifecycle();
     physicalPairingAcrossFocusAndRestart();
     std::cout << "PASS: " << assertions << " input state-machine assertions; no physical input emitted.\n";

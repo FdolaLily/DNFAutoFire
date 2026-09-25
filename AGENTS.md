@@ -52,7 +52,7 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本以根目录 `Version
 - 程序更新（`app_update.*`）：双击另一份不同内容的本程序时，若服务注册的 EXE 或正在运行的客户端在别处，先询问再替换；服务管理“程序版本”卡片可“从文件更新…”。目标路径只能来自服务注册信息、运行中的客户端或当前 EXE，不得写死目录；源和目标都必须按版本资源识别为 DNFAutoFire。顺序固定：SCM 停止服务（不得杀服务进程）→ 置位客户端退出事件、5 秒后才强制结束 → 同目录暂存副本、原文件改名、换入，失败恢复原文件 → 先打开新客户端（`--updated <原版本> <pid>`）再重启服务，避免游戏运行时服务再开一个。用户已决定不保留旧版本文件：成功后删除，仍被占用的由新客户端与服务启动时 `cleanupLeftovers` 清理。`DAF_UPDATE_PROMPT=0` 只供自动测试关闭双击提示。
 - 旧版组合（AHK 连发 v0.1.3.x + .NET 服务 DNFProcessManager + config.ini / appsettings.json）：按版本名 `DAF连发工具` 与 `AutoHotkey` 主窗口识别 AHK 版，按旧服务注册路径与其 AutoStart 找到目标；AHK 版先 `WM_CLOSE` 再宽限结束（含其 `/Run=` 子进程）；旧版配置只由 `migrateLegacyConfig` 在 `config.json` 校验成功后删除；用户已决定升级后删除旧服务程序、`服务管理.bat`、`DNF专用工具箱8.0.bat`、`appsettings.Development.json`、`logs\auto-manager*.log`，但只在旧服务确认删除后、且 bat 内容匹配（`DNFProcessManager` / `dnf-toolbox-disabled`）时删除，服务程序只认 `DNFProcessManager.exe` / `AutoManagerProcess.exe`，其他文件一律不动。AHK 版运行时新版不得同时启动。
 - 自动回归不得安装真实服务或修改真实游戏目录；`service_logic_test` 只用自身子进程副本模拟游戏生命周期。
-- 连发默认 7+7ms，范围 1–100ms，低于 7ms 时界面提示“偏快”；一键奔跑搓招保护默认 150ms（下限 140ms），低于 150ms 时界面提示；两/三键 0/8/16ms 相位。所有注入输入按 `LLKHF_INJECTED` 排除；只在 DNF 前台生效；不读写游戏内存、不联网、不记录键盘文本。
+- 连发默认 7+7ms，低于 7ms 时界面提示“偏快”；一键奔跑搓招保护默认 150ms，低于 150ms 时界面提示。连发按下/抬起与奔跑搓招保护/双击间隔/按键脉冲仅要求正整数毫秒，不按建议值硬性限制范围；显式自定义值（含 180/200/350ms）原样保留，换算为微秒使用 64 位并防止步进溢出；两/三键 0/8/16ms 相位。所有注入输入按 `LLKHF_INJECTED` 排除；只在 DNF 前台生效；不读写游戏内存、不联网、不记录键盘文本。
 
 ## 版本号
 

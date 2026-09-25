@@ -1,13 +1,21 @@
 #pragma once
+#include <algorithm>
 #include <array>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
 namespace dafclient {
 // 新方案的默认按下/抬起时长，以及一键奔跑的默认搓招保护；低于默认值时界面给出提示。
 constexpr unsigned kDefaultFireMs = 7;
-constexpr unsigned kDefaultGuardMs = 150, kMinGuardMs = 140, kMaxGuardMs = 1000;
+constexpr unsigned kDefaultGuardMs = 150;
+// Timing recommendations are advisory. Only positive whole milliseconds and
+// the storage type's representable range constrain user timing values.
+constexpr unsigned kMaxTimingMs = (std::numeric_limits<unsigned>::max)();
+inline unsigned increaseTiming(unsigned value, unsigned step = 1) {
+    return value + (std::min)(step, kMaxTimingMs - value);
+}
 // Delay after each newly added one-key combo output step.
 constexpr unsigned kDefaultComboDelayMs = 30;
 struct Key {

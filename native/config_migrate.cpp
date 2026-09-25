@@ -105,11 +105,9 @@ Settings settingsFrom(const IniSection* s) {
     result.quickSwitchHotkey = get(s, L"QuickChangeHotKey", result.quickSwitchHotkey);
     result.oneKeyRun.enabled = num(s, L"OneKeyRunState", 0, 0, 1) != 0;
     for (size_t i = 0; i < 4; ++i) result.oneKeyRun.keys[i] = get(s, kDirectionFields[i], result.oneKeyRun.keys[i]);
-    result.oneKeyRun.pressMs = num(s, L"OneKeyRunPressDelay", 30, 1, 1000);
-    result.oneKeyRun.gapMs = num(s, L"OneKeyRunGapDelay", 30, 1, 1000);
-    result.oneKeyRun.guardMs = num(s, L"OneKeyRunGuardDelay", kDefaultGuardMs, kMinGuardMs, kMaxGuardMs);
-    if (result.oneKeyRun.guardMs == 350 || result.oneKeyRun.guardMs == 200 || result.oneKeyRun.guardMs == 180)
-        result.oneKeyRun.guardMs = kDefaultGuardMs;
+    result.oneKeyRun.pressMs = num(s, L"OneKeyRunPressDelay", 30, 1, kMaxTimingMs);
+    result.oneKeyRun.gapMs = num(s, L"OneKeyRunGapDelay", 30, 1, kMaxTimingMs);
+    result.oneKeyRun.guardMs = num(s, L"OneKeyRunGuardDelay", kDefaultGuardMs, 1, kMaxTimingMs);
     result.oneKeyRun.toggleHotkey = get(s, L"OneKeyRunToggleHotKey", L"F10");
     result.theme = equal(get(s, L"SettingTheme", L"dark"), L"light") ? L"light" : L"dark";
     return result;
@@ -117,8 +115,8 @@ Settings settingsFrom(const IniSection* s) {
 Profile profileFrom(const std::wstring& name, const IniSection* s, const IniSection* settings) {
     Profile p; p.name = name;
     p.keys = splitKeys(get(s, L"keys"));
-    p.downMs = num(s, L"AutoFireDownMs", kDefaultFireMs, 1, 100);
-    p.upMs = num(s, L"AutoFireUpMs", kDefaultFireMs, 1, 100);
+    p.downMs = num(s, L"AutoFireDownMs", kDefaultFireMs, 1, kMaxTimingMs);
+    p.upMs = num(s, L"AutoFireUpMs", kDefaultFireMs, 1, kMaxTimingMs);
     p.lvRen = num(s, L"LvRenState", 0, 0, 1) != 0;
     p.zhanFa = num(s, L"ZhanFaState", 0, 0, 1) != 0;
     p.jianZong = num(s, L"JianZongState", 0, 0, 1) != 0;

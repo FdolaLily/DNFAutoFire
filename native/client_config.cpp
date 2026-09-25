@@ -506,12 +506,9 @@ Settings Store::loadSettings() const {
     const Value& run = o.at(L"oneKeyRun");
     s.oneKeyRun.enabled = run.at(L"enabled").boolean(false);
     for (size_t i = 0; i < 4; ++i) s.oneKeyRun.keys[i] = directionFrom(run.at(L"keys"), i, s.oneKeyRun.keys[i]);
-    s.oneKeyRun.pressMs = run.at(L"pressMs").integer(30, 1, 1000);
-    s.oneKeyRun.gapMs = run.at(L"gapMs").integer(30, 1, 1000);
-    s.oneKeyRun.guardMs = run.at(L"guardMs").integer(kDefaultGuardMs, kMinGuardMs, kMaxGuardMs);
-    // Historical AHK default values migrate to the current default, as OneKeyRunGetGuardDelay did.
-    if (s.oneKeyRun.guardMs == 350 || s.oneKeyRun.guardMs == 200 || s.oneKeyRun.guardMs == 180)
-        s.oneKeyRun.guardMs = kDefaultGuardMs;
+    s.oneKeyRun.pressMs = run.at(L"pressMs").integer(30, 1, kMaxTimingMs);
+    s.oneKeyRun.gapMs = run.at(L"gapMs").integer(30, 1, kMaxTimingMs);
+    s.oneKeyRun.guardMs = run.at(L"guardMs").integer(kDefaultGuardMs, 1, kMaxTimingMs);
     s.oneKeyRun.toggleHotkey = run.at(L"toggleHotkey").string(L"F10");
     return s;
 }
@@ -523,8 +520,8 @@ Profile Store::loadProfile(const std::wstring& name) const {
     const Value& o = found ? *found : empty;
     const Value& globalKeys = root.at(L"settings").at(L"oneKeyRun").at(L"keys");
     p.keys = o.at(L"keys").stringList();
-    p.downMs = o.at(L"downMs").integer(kDefaultFireMs, 1, 100);
-    p.upMs = o.at(L"upMs").integer(kDefaultFireMs, 1, 100);
+    p.downMs = o.at(L"downMs").integer(kDefaultFireMs, 1, kMaxTimingMs);
+    p.upMs = o.at(L"upMs").integer(kDefaultFireMs, 1, kMaxTimingMs);
     const Value& lv = o.at(L"lvRen");
     p.lvRen = lv.at(L"enabled").boolean(false);
     p.lvRenShotKey = lv.at(L"shotKey").string(L"Z");

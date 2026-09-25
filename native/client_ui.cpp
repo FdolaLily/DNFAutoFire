@@ -419,7 +419,7 @@ struct ClientUi::Impl : UiHost {
         return true;
     }
     void setTiming(unsigned down, unsigned up) {
-        profile.downMs = std::clamp(down, 1u, 100u); profile.upMs = std::clamp(up, 1u, 100u); changed();
+        profile.downMs = std::max(down, 1u); profile.upMs = std::max(up, 1u); changed();
         if (profile.downMs < kDefaultFireMs || profile.upMs < kDefaultFireMs) showHint(timingHint());
     }
     // Validates and stores the in-game quick-switch hotkey; errors are shown on the field `id`.
@@ -1076,13 +1076,14 @@ struct ClientUi::Impl : UiHost {
                 canvas.text(reset, sans(12.5f), cx + 250 - w, 537, hovered(IdResetTiming) ? t.text : t.text2);
                 hit(box(cx + 250 - w, 527, w, 20), IdResetTiming, [this] { setTiming(kDefaultFireMs, kDefaultFireMs); });
             }
-            wchar_t hz[32]{}; swprintf_s(hz, L"%.1f", 1000.0 / double(profile.downMs + profile.upMs));
+            const double periodMs = double(profile.downMs) + double(profile.upMs);
+            wchar_t hz[32]{}; swprintf_s(hz, L"%.1f", 1000.0 / periodMs);
             Font big = mono(32, 600); big.tracking = -0.64f;
             canvas.text(hz, big, cx, 577, t.text);
             const float baseline = 577 + canvas.baselineOffset(big);
             canvas.text(L"次 / 秒 · 每键", sans(12), cx + canvas.textWidth(hz, big) + 6, baseline - canvas.baselineOffset(sans(12)), t.text2);
             // Square wave: one high segment per press, drawn over three cycles.
-            const float cyc = 250.f / 3.f, hi = cyc * float(profile.downMs) / float(profile.downMs + profile.upMs);
+            const float cyc = 250.f / 3.f, hi = cyc * float(double(profile.downMs) / periodMs);
             std::vector<D2D1_POINT_2F> pts{{cx, 605 + 30.5f}};
             for (int i = 0; i < 3; ++i) {
                 const float px = cx + cyc * i;
@@ -1097,10 +1098,10 @@ struct ClientUi::Impl : UiHost {
             canvas.text(fastUp ? L"抬起 ms · 偏快" : L"抬起 ms", sans(11.5f), cx + 130, 659.5f, fastUp ? t.combo : t.text2);
             stepper(IdDownDec, IdDownInc, cx, 673, 120, std::to_wstring(profile.downMs),
                 [this] { setTiming(profile.downMs - (profile.downMs > 1 ? 1 : 0), profile.upMs); },
-                [this] { setTiming(profile.downMs + 1, profile.upMs); }, fastDown);
+                [this] { setTiming(increaseTiming(profile.downMs), profile.upMs); }, fastDown);
             stepper(IdUpDec, IdUpInc, cx + 130, 673, 120, std::to_wstring(profile.upMs),
                 [this] { setTiming(profile.downMs, profile.upMs - (profile.upMs > 1 ? 1 : 0)); },
-                [this] { setTiming(profile.downMs, profile.upMs + 1); }, fastUp);
+                [this] { setTiming(profile.downMs, increaseTiming(profile.upMs)); }, fastUp);
         }
         // 2. Class aids.
         {
@@ -1427,22 +1428,22 @@ struct ClientUi::Impl : UiHost {
         }
         y += 44;
         // advisory: values below it stay allowed but show a warm hint beside the label and in the footer.
-        const auto row = [&](const std::wstring& label, int dec, int inc, unsigned& value, unsigned minimum, unsigned maximum, unsigned step,
+        const auto row = [&](const std::wstring& label, int dec, int inc, unsigned& value, unsigned step,
                              unsigned advisory, const std::wstring& inline_, std::wstring (*hint)()) {
             const bool low = advisory && value < advisory;
             canvas.text(label, sans(13), 864, y + 16, t.text);
             if (low) canvas.text(inline_, sans(12), 864 + canvas.textWidth(label, sans(13)) + 12, y + 16, t.combo);
             const auto after = [this, &value, advisory, hint] { changed(); if (advisory && value < advisory && hint) showHint(hint()); };
             stepper(dec, inc, 1084, y, 140, std::to_wstring(value),
-                [&value, minimum, step, after] { value = value >= minimum + step ? value - step : minimum; after(); },
-                [&value, maximum, step, after] { value = std::min(maximum, value + step); after(); }, low);
+                [&value, step, after] { value = value > step ? value - step : 1; after(); },
+                [&value, step, after] { value = increaseTiming(value, step); after(); }, low);
             canvas.text(L"ms", sans(12), 1236, y + 16, t.text3);
             y += 42;
         };
-        row(L"搓招保护", IdGuardDec, IdGuardInc, options.oneKeyRun.guardMs, kMinGuardMs, kMaxGuardMs, 10,
+        row(L"搓招保护", IdGuardDec, IdGuardInc, options.oneKeyRun.guardMs, 10,
             kDefaultGuardMs, L"低于 " + std::to_wstring(kDefaultGuardMs) + L"ms 易误触奔跑", &Impl::guardHint);
-        row(L"双击间隔", IdGapDec, IdGapInc, options.oneKeyRun.gapMs, 1, 1000, 5, 0, L"", nullptr);
-        row(L"按键脉冲", IdPressDec, IdPressInc, options.oneKeyRun.pressMs, 1, 1000, 5, 0, L"", nullptr);
+        row(L"双击间隔", IdGapDec, IdGapInc, options.oneKeyRun.gapMs, 5, 0, L"", nullptr);
+        row(L"按键脉冲", IdPressDec, IdPressInc, options.oneKeyRun.pressMs, 5, 0, L"", nullptr);
         y += 14;
         sectionTitle(y, L"游戏内开关"); y += 27.4f;
         captureField(IdCapRunHotkey, 864, y, 64, hotkeyLabel(options.oneKeyRun.toggleHotkey), false, [this](const std::wstring& k) {

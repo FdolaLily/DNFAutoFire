@@ -35,9 +35,9 @@ class InputModel {
 public:
     static constexpr InputTick never = (std::numeric_limits<InputTick>::max)();
     InputModel(InputPlan plan, InputSink& sink) : plan_(std::move(plan)), sink_(sink) {
-        plan_.pressMs = std::clamp(plan_.pressMs, 1U, 1000U);
-        plan_.gapMs = std::clamp(plan_.gapMs, 1U, 1000U);
-        plan_.guardMs = std::clamp(plan_.guardMs, 140U, 1000U);
+        plan_.pressMs = (std::max)(plan_.pressMs, 1U);
+        plan_.gapMs = (std::max)(plan_.gapMs, 1U);
+        plan_.guardMs = (std::max)(plan_.guardMs, 1U);
     }
     ~InputModel() = default; // Owner must call cancel() before destroying the sink.
     void focus(bool foreground, InputTick now) {
@@ -99,22 +99,30 @@ public:
                 state.stage = Stage::GapFirst;
                 state.due = now + ms(plan_.gapMs);
                 break;
-            case Stage::GapFirst:
+            case Stage::GapFirst: {
+                const bool repeated = lastMovementDown_ == i;
                 setDirectionOutput(i, true);
-                if (state.full) {
+                if (state.full || !repeated) {
                     state.stage = Stage::Tap;
                     state.due = now + ms(plan_.pressMs);
                 } else markRunning(i);
                 break;
+            }
             case Stage::Tap:
                 setDirectionOutput(i, false);
                 state.stage = Stage::GapLast;
                 state.due = now + ms(plan_.gapMs);
                 break;
-            case Stage::GapLast:
+            case Stage::GapLast: {
+                const bool repeated = lastMovementDown_ == i;
                 setDirectionOutput(i, true);
-                markRunning(i);
+                if (repeated) markRunning(i);
+                else {
+                    state.stage = Stage::Tap;
+                    state.due = now + ms(plan_.pressMs);
+                }
                 break;
+            }
             case Stage::Idle: break;
             }
         }
@@ -145,6 +153,7 @@ public:
         dirs_ = {};
         tickets_ = {};
         lastDirection_ = -1;
+        lastMovementDown_ = -1;
         lastPress_ = 0;
         stableRelease_ = false;
     }
@@ -179,6 +188,7 @@ private:
         // Down reaches the game, including while running purely vertically.
         if (down) {
             const int direction = directionIndex(key);
+            if (direction >= 0) lastMovementDown_ = direction;
             if (direction >= 2) facing_ = direction;
         }
         return true;
@@ -247,11 +257,11 @@ private:
         for (int j = 0; j < 4; ++j) {
             if (j == i) continue;
             if (dirs_[j].running) switching = true;
-            if (!dirs_[j].active || !held(j)) continue;
+            if (!dirs_[j].active || !held(j) || dirs_[j].suppressedBy >= 0) continue;
             if (orthogonal(i, j)) { orthoHeld = true; orthoRunning |= dirs_[j].running; }
             else oppositeHeld = true;
         }
-        const bool chord = !switching && orthoHeld && !oppositeHeld;
+        const bool chord = orthoHeld && (!oppositeHeld || switching);
         // Left -> Up run, release Left, then Right while Up is still held: the
         // character still faces Left, so a single Right Down only turns it and
         // drops to walking. A horizontal reversal needs its own double tap even
@@ -269,19 +279,52 @@ private:
         state.epoch = epoch_;
         state.refresh = false;
         state.switching = switching;
-        if (switching && dirs_[i ^ 1].running) {
+        if (switching && dirs_[i ^ 1].active && held(i ^ 1)) {
             auto& opposite = dirs_[i ^ 1];
             setDirectionOutput(i ^ 1, false);
             opposite.running = false;
             opposite.stage = Stage::Idle;
             opposite.suppressedBy = i;
         }
+        if (switching && !session) {
+            // A reversal invalidates the whole previous diagonal session.
+            // Leaving its vertical axis marked running lets the next key
+            // inherit a stale run and cancel an unfinished horizontal tap.
+            for (auto& direction : dirs_) {
+                if (direction.running) { stableRelease_ = true; lastRelease_ = now; }
+                direction.running = false;
+            }
+        }
         if (!alreadyDown) setDirectionOutput(i, true);
         if (session) { markRunning(i); return; }
-        if (chord && sequential) { state.stage = Stage::Idle; return; }
+        if (chord) {
+            for (int j = 0; j < 4; ++j) {
+                auto& first = dirs_[j];
+                if (!orthogonal(i, j) || !valid(j, first.epoch)
+                    || first.stage == Stage::Idle || first.running) continue;
+                // A horizontal reversal owns the new pair; completing a
+                // vertical tap must not skip the change of horizontal facing.
+                if (reverse) { cancelPending(j); break; }
+                // The new direction Down interrupts the first axis's double
+                // tap (Right, Up, Right is not Right, Right). Keep diagonal
+                // movement held, but send a fresh complete pair before either
+                // axis may inherit running. A join during Tap/GapLast must
+                // restart that pair too; its first Down is already too old.
+                first.full = true;
+                if (first.stage == Stage::Tap) {
+                    setDirectionOutput(j, false);
+                    first.due = now + ms(plan_.gapMs);
+                }
+                if (first.stage == Stage::Tap || first.stage == Stage::GapLast)
+                    first.stage = Stage::GapFirst;
+                state.stage = Stage::Idle;
+                return;
+            }
+        }
+        if (chord && sequential && !reverse) { state.stage = Stage::Idle; return; }
         const InputTick delay = switching ? ms(90) : sequential
             ? (std::max)(ms(plan_.guardMs), ms(350) - elapsed) : ms(plan_.guardMs);
-        state.full = !switching && delay > ms(250);
+        state.full = alreadyDown || (!switching && delay > ms(250));
         state.stage = Stage::Confirm;
         state.due = now + delay;
     }
@@ -374,6 +417,7 @@ private:
     std::uint64_t epoch_ = 0;
     bool foreground_ = false, failed_ = false, interrupted_ = false, stableRelease_ = false;
     int lastDirection_ = -1;
+    int lastMovementDown_ = -1; // Actual output order, independent of physical presses/epochs.
     int facing_ = -1; // Last Left/Right Down sent to DNF; game state, kept across cancel().
     InputTick lastPress_ = 0, lastRelease_ = 0;
     std::deque<std::size_t> queue_;

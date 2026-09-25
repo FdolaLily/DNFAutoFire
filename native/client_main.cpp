@@ -187,8 +187,8 @@ struct Runtime {
             static_assert(sizeof(Rule) == 132 * sizeof(unsigned), "Engine rule ABI");
             if (!rules.empty()) {
                 engine = AF_Start(reinterpret_cast<const unsigned*>(rules.data()),
-                    static_cast<unsigned>(rules.size()), profile.downMs * 1000,
-                    profile.upMs * 1000, 0, window, 0);
+                    static_cast<unsigned>(rules.size()), profile.downMs * 1000ULL,
+                    profile.upMs * 1000ULL, 0, window, 0);
                 if (!engine) { lastError = GetLastError(); return false; }
             }
         }
@@ -220,7 +220,11 @@ int selfTest(HINSTANCE instance, bool uiTest) {
     DWORD initialHandles = 0, finalHandles = 0;
     GetProcessHandleCount(GetCurrentProcess(), &initialHandles);
     for (unsigned iteration = 0; iteration < 25; ++iteration) {
-        void* engine = AF_Start(rule, 1, 7000, 7000, 0, window, 0);
+        // Include timing beyond the former UI/engine ceilings, including a
+        // duration whose microseconds cannot fit in 32 bits. No key is held.
+        const unsigned long long duration = iteration % 3 == 0 ? 7000ULL
+            : iteration % 3 == 1 ? 500000ULL : kMaxTimingMs * 1000ULL;
+        void* engine = AF_Start(rule, 1, duration, duration, 0, window, 0);
         if (!engine) { DestroyWindow(window); return 11; }
         const bool controllerOk = controller.start(profile, settings, engine, window, false);
         Sleep(10);

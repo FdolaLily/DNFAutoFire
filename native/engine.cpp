@@ -6,6 +6,7 @@
 #include <new>
 #include <cwchar>
 #include "schedule.h"
+#include "engine_api.h"
 #include "win_timer.h"
 
 namespace {
@@ -33,7 +34,8 @@ struct Engine {
     std::atomic<unsigned long long> pause_generation[daf::kMaxKeys]{};
     std::atomic<unsigned long long> pause_ack[daf::kMaxKeys]{};
     size_t count = 0;
-    unsigned down_us = 10000, up_us = 10000, spin_us = 0;
+    unsigned long long down_us = 10000, up_us = 10000;
+    unsigned spin_us = 0;
     HWND notify = nullptr;
     ULONG_PTR cookie = 0;
     HANDLE stop = nullptr, changed = nullptr, ready = nullptr;
@@ -271,10 +273,10 @@ bool stop(Engine* e) {
 #endif
 // Per rule: descriptor, manual, delay_us, trigger_count, 128 trigger descriptors.
 // descriptor: low 16 bits AHK scan code, high 16 bits virtual key.
-API void* AF_Start(const unsigned* descriptors, unsigned count, unsigned down_us,
-                   unsigned up_us, unsigned spin_us, HWND notify, ULONG_PTR cookie) {
-    if (!descriptors || !count || count > daf::kMaxKeys || down_us < 1000 || down_us > 100000
-        || up_us < 1000 || up_us > 100000 || spin_us > 250 || !IsWindow(notify)) {
+API void* AF_Start(const unsigned* descriptors, unsigned count, unsigned long long down_us,
+                   unsigned long long up_us, unsigned spin_us, HWND notify, ULONG_PTR cookie) {
+    if (!descriptors || !count || count > daf::kMaxKeys || !down_us || down_us > daf::kNever / 1024
+        || !up_us || up_us > daf::kNever / 1024 || spin_us > 250 || !IsWindow(notify)) {
         SetLastError(ERROR_INVALID_PARAMETER); return nullptr;
     }
     auto* e = new (std::nothrow) Engine;

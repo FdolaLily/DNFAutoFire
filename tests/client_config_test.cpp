@@ -145,12 +145,33 @@ int main(int argc, char** argv) {
         for (const unsigned legacy : {180u,200u,350u}) {
             auto legacySettings = settings; legacySettings.oneKeyRun.guardMs = legacy;
             store.saveSettings(legacySettings);
-            check(store.loadSettings().oneKeyRun.guardMs == 150, "historical guard defaults migrate to the current default");
+            check(store.loadSettings().oneKeyRun.guardMs == legacy, "explicit guard values are never mistaken for old defaults");
         }
         auto customGuard = settings; customGuard.oneKeyRun.guardMs = 247; store.saveSettings(customGuard);
         check(store.loadSettings().oneKeyRun.guardMs == 247, "custom guard value is retained");
         customGuard.oneKeyRun.guardMs = 140; store.saveSettings(customGuard);
         check(store.loadSettings().oneKeyRun.guardMs == 140, "explicit 140ms guard is kept (only hinted in the UI)");
+        const auto timingProfile = store.loadProfile(L"普通");
+        for (unsigned value : {1u, 50u, 500u, 1001u, 5000000u, kMaxTimingMs}) {
+            auto timing = timingProfile; timing.downMs = timing.upMs = value;
+            store.saveProfile(timing);
+            const auto loaded = store.loadProfile(timing.name);
+            check(loaded.downMs == value && loaded.upMs == value, "positive fire timing survives save/reload without a recommendation clamp");
+            customGuard.oneKeyRun.guardMs = customGuard.oneKeyRun.gapMs = customGuard.oneKeyRun.pressMs = value;
+            store.saveSettings(customGuard);
+            const auto run = store.loadSettings().oneKeyRun;
+            check(run.guardMs == value && run.gapMs == value && run.pressMs == value,
+                "positive run timings survive save/reload without old floors or ceilings");
+        }
+        auto zero = timingProfile; zero.downMs = zero.upMs = 0; store.saveProfile(zero);
+        check(store.loadProfile(zero.name).downMs == 1 && store.loadProfile(zero.name).upMs == 1, "fire timings must remain strictly positive");
+        customGuard.oneKeyRun.guardMs = customGuard.oneKeyRun.gapMs = customGuard.oneKeyRun.pressMs = 0;
+        store.saveSettings(customGuard);
+        const auto positive = store.loadSettings().oneKeyRun;
+        check(positive.guardMs == 1 && positive.gapMs == 1 && positive.pressMs == 1, "run timings must remain strictly positive");
+        store.saveProfile(timingProfile); store.saveSettings(settings);
+        check(increaseTiming(kMaxTimingMs) == kMaxTimingMs && increaseTiming(kMaxTimingMs - 3, 10) == kMaxTimingMs,
+            "timing steppers cannot overflow their storage type");
 
         check(store.loadSettings().theme == L"dark", "theme defaults to dark");
         auto themed = store.loadSettings(); themed.theme = L"light"; store.saveSettings(themed);

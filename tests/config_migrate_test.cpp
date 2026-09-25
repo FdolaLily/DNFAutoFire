@@ -32,6 +32,20 @@ int main() {
     struct Cleanup { fs::path dir; ~Cleanup() { std::error_code e; fs::remove_all(dir, e); } } cleanup{dir};
     try {
         check(!migrateLegacyConfig(dir.wstring()).migrated() && !fs::exists(dir / L"config.json"), "nothing to migrate is a no-op");
+        for (unsigned value : {1u, 180u, 200u, 350u, 1001u, 5000000u, kMaxTimingMs}) {
+            const auto timingDir = dir / (L"timing-" + std::to_wstring(value));
+            fs::create_directory(timingDir);
+            const auto text = std::to_wstring(value);
+            writeUtf16(timingDir / L"config.ini", L"[设置]\r\nOneKeyRunGuardDelay=" + text
+                + L"\r\nOneKeyRunPressDelay=" + text + L"\r\nOneKeyRunGapDelay=" + text
+                + L"\r\n[预设:custom]\r\nAutoFireDownMs=" + text + L"\r\nAutoFireUpMs=" + text + L"\r\n");
+            check(migrateLegacyConfig(timingDir.wstring()).migrated(), "custom timing INI migration succeeds");
+            Store timingStore((timingDir / L"config.json").wstring());
+            const auto run = timingStore.loadSettings().oneKeyRun;
+            const auto profile = timingStore.loadProfile(L"custom");
+            check(run.guardMs == value && run.pressMs == value && run.gapMs == value
+                && profile.downMs == value && profile.upMs == value, "migration preserves all positive custom timing values");
+        }
 
         // The user's real legacy config.ini, including an unused empty section and a foreign section.
         writeUtf16(dir / L"config.ini", L"[设置]\r\nLastPreset=普通\r\nQuickChangeHotKey=!PgUp\r\nSettingAutoStart=1\r\n"

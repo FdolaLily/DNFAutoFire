@@ -72,7 +72,12 @@ int main() {
         expect(future,"unknown future key retained");
         expect(control&&numpad,"original alias text retained");
         ui.setTiming(0,500);
-        expect(ui.currentProfile().downMs==1&&ui.currentProfile().upMs==100,"timing clamped to 1-100ms");
+        expect(ui.currentProfile().downMs==1&&ui.currentProfile().upMs==500,"timing only enforces positive milliseconds");
+        ui.flush(); saved=store.loadProfile(L"Existing");
+        expect(saved.downMs==1&&saved.upMs==500,"UI timing beyond 100ms survives reload");
+        ui.setTiming(kMaxTimingMs,kMaxTimingMs); ui.flush(); saved=store.loadProfile(L"Existing");
+        expect(saved.downMs==kMaxTimingMs&&saved.upMs==kMaxTimingMs,"full representable timing range survives UI save");
+        ui.setTiming(7,7); ui.flush();
 
         ui.setRunScope(true);
         expect(ui.runKeys()[0]==L"W","preset run scope restores saved directions");
