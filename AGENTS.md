@@ -20,6 +20,8 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本 v0.2.0.0：纯 C++17
 
 ## 构建与测试
 
+- GitHub Actions：`.github/workflows/build-release.yml` 在 main 推送、v* 标签、PR 和手动触发时构建测试；main / 标签的未发布版本自动创建 Release。`scripts/install-build-tools.ps1` 下载并校验 Zig，`scripts/package-release.ps1` 校验版本与黑名单并打包。已发布版本不覆盖，版本与发布说明以根目录 `Version` 为准。
+
 - `scripts/build.ps1`：校验 Zig 哈希 → `zig rc` 编译 `native/client.rc` → 编译并检查导入依赖与 GUI 子系统 → 运行全部 C++ 回归、成品 `--self-test` / `--ui-self-test`、构建工具与发布黑名单测试、单实例测试。默认产物 `build/release-<版本>/DNFAutoFire.exe`。`-SkipTests` 跳过回归，`-Benchmark` 追加调度基准（写入 `build/native-benchmark.csv`）。
 - 编译参数固定：`-std=c++17 -O2 -Wall -Wextra -Werror -static -target x86_64-windows-gnu`，链接必须带 `-Wl,--subsystem,windows`（Zig 0.15.2 的 `-mwindows` 无效）。
 - 成品只允许导入 Windows 自带 DLL/UCRT（KERNEL32、USER32、WINMM、ADVAPI32、COMCTL32、GDI32、OLE32、SHELL32、D2D1、DWRITE、DWMAPI）。新增依赖须同步 `inspect-native-dependencies.ps1` 白名单并说明理由；禁止解释器、释放临时文件/DLL、加壳或混淆。

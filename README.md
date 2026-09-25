@@ -32,6 +32,17 @@
 - 同时按下两个或三个连发键时，按当前配置顺序使用固定 8ms 协同相位；四键以上回退动态错峰，不绑定具体键位。
 - 战法炫纹发射键限定为数字小键盘按键，并提示使用时先按住发射键，再按 Num Lock 关闭数字小键盘。
 
+## 自动构建与 GitHub Releases
+
+[下载最新版本](https://github.com/FdolaLily/DNFAutoFire/releases/latest) · [查看构建记录](https://github.com/FdolaLily/DNFAutoFire/actions/workflows/build-release.yml)
+
+- 推送 `main`、推送 `v*` 标签或在 Actions 中手动运行 `Build and Release`，都会在 Windows 上自动编译并运行全部回归；提交到 `main` 的 Pull Request 也会验证构建，但不发布。
+- `main` 或版本标签构建通过后，读取根目录 `Version` 的 `tag_name` 和 `body`，为尚未发布的版本自动创建 GitHub Release。普通提交不会覆盖同版本的已发布附件；发布下一版时请完成下方版本文件同步后再推送。
+- 附件包含 `DNFAutoFire.exe`、Windows x64 ZIP 和 `SHA256SUMS.txt`。Actions 的构建产物保留 30 天；Release 附件长期保留。失败的构建不会发布，上传中断会保留草稿，可对同一提交重新运行。
+- 发布前校验标签、EXE 与 manifest 版本一致，校验 Zig 下载包和编译器的固定 SHA256，并执行已知检出样本黑名单检查。自动检查不等于杀毒软件主动扫描通过。
+- 升级版本时同步 `Version`、`native/client.rc`、`native/client.manifest`、`native/client_ui.cpp`、`scripts/build.ps1`、`scripts/publish.ps1` 与本文件更新日志。推送后无需另外手动创建标签或 Release。
+- 云端工作流使用 GitHub 托管 runner 与内置 `GITHUB_TOKEN`，无需配置个人令牌。本机 `E:\autokill`、`AutoManagerProcess` 的部署继续使用 `scripts/publish.ps1` 完成。
+
 ## 功能简介
  - 多键位无冲突连发
  - 不影响打字
