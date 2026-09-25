@@ -4,6 +4,11 @@
 #include <vector>
 
 namespace dafclient {
+// 新方案的默认按下/抬起时长，以及一键奔跑的默认搓招保护；低于默认值时界面给出提示。
+constexpr unsigned kDefaultFireMs = 7;
+constexpr unsigned kDefaultGuardMs = 150, kMinGuardMs = 140, kMaxGuardMs = 1000;
+// Delay after each newly added one-key combo output step.
+constexpr unsigned kDefaultComboDelayMs = 30;
 struct Key {
     std::wstring name;
     unsigned scan = 0, vk = 0;
@@ -28,11 +33,12 @@ std::wstring serializeCombos(const std::vector<Combo>& combos);
 struct RunSettings {
     bool enabled = false;
     std::array<std::wstring, 4> keys{{L"Up", L"Down", L"Left", L"Right"}};
-    unsigned pressMs = 30, gapMs = 30, guardMs = 140;
+    unsigned pressMs = 30, gapMs = 30, guardMs = kDefaultGuardMs;
     std::wstring toggleHotkey = L"F10";
 };
 struct Settings {
-    bool autoStart = false, onSystemStart = false, blockWin = false;
+    // autoStart: start auto-fire on launch and keep the window in the tray (default on).
+    bool autoStart = true, onSystemStart = false, blockWin = false;
     std::wstring lastPreset, quickSwitchHotkey = L"!Tilde";
     std::wstring theme = L"dark"; // "dark" or "light"
     RunSettings oneKeyRun;
@@ -40,7 +46,7 @@ struct Settings {
 struct Profile {
     std::wstring name;
     std::vector<std::wstring> keys;
-    unsigned downMs = 10, upMs = 10;
+    unsigned downMs = kDefaultFireMs, upMs = kDefaultFireMs;
     bool lvRen = false, zhanFa = false, jianZong = false, combo = false;
     std::wstring lvRenShotKey = L"Z", zhanFaShotKey, jianZongSkillKey = L"A";
     std::vector<std::wstring> lvRenSkillKeys, zhanFaSkillKeys;

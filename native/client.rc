@@ -14,8 +14,8 @@
 206 RCDATA "fonts/JetBrainsMono-SemiBold.ttf"
 207 RCDATA "fonts/JetBrainsMono-Bold.ttf"
 1 VERSIONINFO
-FILEVERSION 0,1,6,0
-PRODUCTVERSION 0,1,6,0
+FILEVERSION 0,2,0,0
+PRODUCTVERSION 0,2,0,0
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -25,11 +25,11 @@ BEGIN
   BEGIN
    VALUE "CompanyName", "DNFAutoFire project\0"
    VALUE "FileDescription", "DNF 连发工具 - 原生 Windows 客户端\0"
-   VALUE "FileVersion", "0.1.6.0\0"
+   VALUE "FileVersion", "0.2.0.0\0"
    VALUE "InternalName", "DNFAutoFire\0"
    VALUE "OriginalFilename", "DNFAutoFire.exe\0"
    VALUE "ProductName", "DNFAutoFire\0"
-   VALUE "ProductVersion", "0.1.6.0\0"
+   VALUE "ProductVersion", "0.2.0.0\0"
   END
  END
  BLOCK "VarFileInfo"

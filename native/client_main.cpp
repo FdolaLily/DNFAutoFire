@@ -36,6 +36,22 @@ bool alreadyRunning() {
     if (error != ERROR_FILE_NOT_FOUND) throw std::runtime_error("Cannot inspect singleton mutex");
     return false;
 }
+// Asks an already running client to show its window and a friendly notice.
+// The first instance may still be starting, so its window is awaited briefly.
+// Returns false when no window answered; the duplicate still exits quietly.
+bool showRunningInstance() {
+    const UINT message = RegisterWindowMessageW(kShowRunningMessage);
+    if (!message) return false;
+    for (int attempt = 0; attempt < 15; ++attempt) {
+        if (HWND window = FindWindowW(kMainWindowClass, nullptr)) {
+            DWORD process = 0; GetWindowThreadProcessId(window, &process);
+            if (process) AllowSetForegroundWindow(process); // We were just launched by the user, so we may grant this.
+            return PostMessageW(window, message, 0, 0) != FALSE;
+        }
+        Sleep(100);
+    }
+    return false;
+}
 HANDLE acquireInstance() {
     HANDLE handle = CreateMutexExW(nullptr, kMutex, 0, SYNCHRONIZE);
     const DWORD error = GetLastError();
@@ -165,7 +181,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (argv) LocalFree(argv);
     try {
         if (self) { const int result = selfTest(instance, uiTest); if (SUCCEEDED(com)) CoUninitialize(); return result; }
-        if (alreadyRunning()) return 0;
+        if (alreadyRunning()) { showRunningInstance(); return 0; }
         const auto path = executable();
         if (!administrator()) {
             SHELLEXECUTEINFOW request{}; request.cbSize = sizeof(request);
@@ -174,13 +190,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             if (!ShellExecuteExW(&request)) return GetLastError() == ERROR_CANCELLED ? 0 : 1;
             return 0;
         }
-        if (!acquireInstance()) return 0;
-        Store store(path.substr(0, path.find_last_of(L"\\/")) + L"\\config.ini");
+        if (!acquireInstance()) { showRunningInstance(); return 0; }
+        const std::wstring configPath = path.substr(0, path.find_last_of(L"\\/")) + L"\\config.ini";
+        // A first run has nothing configured yet, so it always shows the window once.
+        const bool firstRun = GetFileAttributesW(configPath.c_str()) == INVALID_FILE_ATTRIBUTES;
+        Store store(configPath);
         // Deliberately process-lifetime: in a failed thread join we never free memory
         // that a hook/worker may still reference; process exit releases all resources.
         runtime = new Runtime;
         ClientUi* uiPointer = nullptr;
-        bool startup = store.loadSettings().onSystemStart;
+        const Settings initial = store.loadSettings();
+        bool startup = initial.onSystemStart;
+        // Auto-start goes straight to the tray: the main window is never shown, so it cannot flash.
+        const bool startHidden = initial.autoStart && !firstRun;
         auto report = [&] {
             if (uiPointer) uiPointer->setStatus(L"按键控制发生错误，Windows 错误码：" + std::to_wstring(runtime->error()));
         };
@@ -200,10 +222,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         };
         callbacks.quit = [&] { runtime->shutdown(); PostQuitMessage(0); };
         ClientUi ui(instance, store, std::move(callbacks)); uiPointer = &ui;
-        if (!ui.create()) throw std::runtime_error("Cannot create main window");
+        if (!ui.create(true, !startHidden)) throw std::runtime_error("Cannot create main window");
         runtime->window = ui.window();
-        if (!runtime->configure(ui.currentProfile(), ui.settings(), false)) report();
-        if (ui.settings().autoStart && ui.start(false)) ShowWindow(ui.window(), SW_HIDE);
+        const bool ready = runtime->configure(ui.currentProfile(), ui.settings(), false);
+        if (!ready) report();
+        if (initial.autoStart) {
+            const bool started = ui.start(false);
+            if (startHidden && (!ready || !started)) ui.show(); // Surface the error instead of failing silently in the tray.
+        }
         SetTimer(ui.window(), kHealthTimer, 500, nullptr);
         MSG message{};
         int status;

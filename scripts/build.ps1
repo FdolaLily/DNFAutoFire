@@ -7,7 +7,7 @@ $compiler = Join-Path $root 'venv\tools\zig-x86_64-windows-0.15.2\zig.exe'
 New-Item -ItemType Directory -Path build -Force | Out-Null
 $env:ZIG_GLOBAL_CACHE_DIR = Join-Path $root 'build\zig-cache'
 $env:ZIG_LOCAL_CACHE_DIR = Join-Path $root 'build\zig-local-cache'
-if (!$OutputFile) { $OutputFile = Join-Path $root 'build\release-0.1.6.0\DNFAutoFire.exe' }
+if (!$OutputFile) { $OutputFile = Join-Path $root 'build\release-0.2.0.0\DNFAutoFire.exe' }
 $OutputFile = [System.IO.Path]::GetFullPath($OutputFile)
 New-Item -ItemType Directory -Path (Split-Path $OutputFile -Parent) -Force | Out-Null
 $common = @('c++', '-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',

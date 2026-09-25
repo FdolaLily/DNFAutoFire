@@ -82,6 +82,15 @@ void diagonalAndOpposite() {
     opposite.key(right, false, 350); opposite.edge(7, right, false); opposite.edge(8, left, true);
     opposite.tick(380); opposite.tick(410);
     check(opposite.model.isRunning(2) && opposite.model.outputDown(left), "releasing reverse restores still-physically-held old direction");
+    // Left run -> Up joins -> Left released (running up, still facing Left) -> Right.
+    Rig turn; turn.run(left); turn.key(up, true, 200); turn.key(left, false, 400); turn.key(right, true, 600);
+    turn.edge(5, right, true);
+    check(turn.model.outputDown(up) && !turn.model.isRunning(3), "reversal against facing does not join the vertical session with one press");
+    turn.tick(689); check(turn.sink.edges.size() == 6, "horizontal reversal keeps the 90ms observation window");
+    turn.tick(690); turn.edge(6, right, false); turn.tick(720); turn.edge(7, right, true);
+    check(turn.model.isRunning(3) && turn.model.isRunning(0) && turn.model.outputDown(up), "horizontal reversal double-taps while vertical axis stays held");
+    Rig same; same.run(left); same.key(up, true, 200); same.key(left, false, 400); same.key(left, true, 600);
+    check(same.model.isRunning(2) && same.model.deadline() == InputModel::never, "same-facing horizontal still joins the vertical session");
 }
 void commandWindowAndRecovery() {
     Rig sequence; sequence.key(right, true, 0); sequence.key(right, false, 10); sequence.key(up, true, 50);

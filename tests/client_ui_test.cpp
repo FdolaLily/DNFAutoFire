@@ -58,6 +58,7 @@ int main() {
         ui.setKeyEnabled(L"X",false);
         expect(!ui.keyEnabled(L"X"),"key cap disables key");
         ui.setTiming(1,1);
+        expect(ui.status().find(L"7ms")!=std::wstring::npos,"timing below 7ms shows a friendly hint");
         expect(ui.flush(),"automatic save commits");
         auto saved=store.loadProfile(L"Existing");
         expect(saved.downMs==1&&saved.upMs==1,"1ms timing saved");

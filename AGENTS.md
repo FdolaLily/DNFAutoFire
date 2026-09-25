@@ -1,6 +1,6 @@
 # 项目记忆
 
-DNF 连发工具（DAF，chenyu 魔改版）。当前版本 v0.1.6.0：纯 C++17 / Win32 单 EXE，Direct2D / DirectWrite 自绘界面。旧 AHK 实现、Python 原型和 DLL 装载架构已全部移除，只在 Git 历史中保留，不要再恢复或引用。
+DNF 连发工具（DAF，chenyu 魔改版）。当前版本 v0.2.0.0：纯 C++17 / Win32 单 EXE，Direct2D / DirectWrite 自绘界面。旧 AHK 实现、Python 原型和 DLL 装载架构已全部移除，只在 Git 历史中保留，不要再恢复或引用。
 
 ## 目录
 
@@ -35,12 +35,14 @@ DNF 连发工具（DAF，chenyu 魔改版）。当前版本 v0.1.6.0：纯 C++17
 ## 配置与行为约束
 
 - 继续兼容原 `config.ini`（EXE 同目录）：方案、别名、职业、连招、奔跑参数、未知字段均需保留；修改 400ms 防抖自动保存并即时生效。
-- 单实例使用固定 `Global\DNFAutoFire.Client.{B797BFB2-305A-44DC-9E06-76D6CC424419}` 互斥锁，不得改名。
-- 连发默认 10+10ms，范围 1–100ms；两/三键 0/8/16ms 相位。所有注入输入按 `LLKHF_INJECTED` 排除；只在 DNF 前台生效；不读写游戏内存、不联网、不记录键盘文本。
+- 单实例使用固定 `Global\DNFAutoFire.Client.{B797BFB2-305A-44DC-9E06-76D6CC424419}` 互斥锁，不得改名。重复启动时向已运行实例的主窗口投递注册消息 `kShowRunningMessage`（`client_ui.h`），由其显示主界面并给出“已在运行”提示；找不到窗口时静默退出码 0。
+- “打开后直接开始连发，窗口隐藏到托盘”（`SettingAutoStart`）默认开启：主窗口不显示、直接驻留托盘（不会一闪而过）；首次运行（尚无 config.ini）或自动启动失败时显示主界面。
+- 托盘右键菜单是 `client_ui.cpp` 自绘的弹出窗口（`DAF.Native.TrayMenu`），沿用主题 token，随明亮/暗黑切换；不要改回系统 `TrackPopupMenu`。
+- 连发默认 7+7ms，范围 1–100ms，低于 7ms 时界面提示“偏快”；一键奔跑搓招保护默认 150ms（下限 140ms），低于 150ms 时界面提示；两/三键 0/8/16ms 相位。所有注入输入按 `LLKHF_INJECTED` 排除；只在 DNF 前台生效；不读写游戏内存、不联网、不记录键盘文本。
 
 ## 版本更新清单
 
-升级版本时同时修改：`native/client.rc`（FILEVERSION/PRODUCTVERSION 与字符串）、`native/client_ui.cpp` 的 `kVersion`/`kFullVersion`、`scripts/build.ps1` 默认输出目录、`scripts/publish.ps1` 默认 `$Version`、根目录 `Version`（发布说明 JSON）和 `README.md` 更新日志。`README.md` 与 `Version` 使用 CRLF 换行。
+升级版本时同时修改：`native/client.rc`（FILEVERSION/PRODUCTVERSION 与字符串）、`native/client.manifest`（assemblyIdentity version）、`native/client_ui.cpp` 的 `kVersion`/`kFullVersion`、`scripts/build.ps1` 默认输出目录、`scripts/publish.ps1` 默认 `$Version`、根目录 `Version`（发布说明 JSON）和 `README.md` 更新日志。`README.md` 与 `Version` 使用 CRLF 换行。
 
 ## 安全软件
 

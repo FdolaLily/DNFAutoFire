@@ -175,6 +175,12 @@ private:
             return false;
         }
         output_[id] = down ? key : 0;
+        // DNF keeps the character's horizontal facing until another Left/Right
+        // Down reaches the game, including while running purely vertically.
+        if (down) {
+            const int direction = directionIndex(key);
+            if (direction >= 2) facing_ = direction;
+        }
         return true;
     }
     int directionIndex(KeyCode key) const {
@@ -246,7 +252,12 @@ private:
             else oppositeHeld = true;
         }
         const bool chord = !switching && orthoHeld && !oppositeHeld;
-        const bool session = switching && orthoRunning && !oppositeHeld;
+        // Left -> Up run, release Left, then Right while Up is still held: the
+        // character still faces Left, so a single Right Down only turns it and
+        // drops to walking. A horizontal reversal needs its own double tap even
+        // though the vertical axis keeps the session alive.
+        const bool reverse = i >= 2 && facing_ == (i ^ 1);
+        const bool session = switching && orthoRunning && !oppositeHeld && !reverse;
         if (!chord && !session) advanceEpoch();
         const InputTick elapsed = lastDirection_ >= 0 ? now - lastPress_ : ms(351);
         const bool sequential = !switching && lastDirection_ >= 0
@@ -363,6 +374,7 @@ private:
     std::uint64_t epoch_ = 0;
     bool foreground_ = false, failed_ = false, interrupted_ = false, stableRelease_ = false;
     int lastDirection_ = -1;
+    int facing_ = -1; // Last Left/Right Down sent to DNF; game state, kept across cancel().
     InputTick lastPress_ = 0, lastRelease_ = 0;
     std::deque<std::size_t> queue_;
     std::size_t comboIndex_ = 0, comboStep_ = 0;

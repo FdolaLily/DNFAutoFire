@@ -58,6 +58,10 @@ int main(int argc, char** argv) {
         check(settings.lastPreset == L"普通" && settings.autoStart && settings.oneKeyRun.enabled, "Chinese section migration");
         check(settings.oneKeyRun.toggleHotkey == L"PgDn" && settings.quickSwitchHotkey == L"!PgUp", "existing hotkeys preserved");
         check(profile.keys == std::vector<std::wstring>{L"X",L"Z",L"A",L"Num0"} && profile.downMs == 7 && profile.upMs == 7, "current user's ordinary preset unchanged");
+        check(settings.oneKeyRun.guardMs == 150, "missing guard delay defaults to 150ms");
+        check(Settings{}.autoStart && Store(path + L".absent").loadSettings().autoStart, "auto-start to tray is on by default");
+        const auto fresh = store.loadProfile(L"不存在的方案");
+        check(fresh.downMs == 7 && fresh.upMs == 7 && Profile{}.downMs == 7 && Profile{}.upMs == 7, "new profiles default to 7+7ms");
         check(store.presetNames() == std::vector<std::wstring>{L"普通"}, "exclude empty and unrelated sections");
         check(resolveRunSettings(profile,settings).keys[0] == L"Up", "disabled preset overrides use global directions");
         check(profile.runKeys[0] == L"W", "dormant preset override loaded");
@@ -113,10 +117,12 @@ int main(int argc, char** argv) {
         for (const unsigned legacy : {180u,200u,350u}) {
             auto legacySettings = settings; legacySettings.oneKeyRun.guardMs = legacy;
             store.saveSettings(legacySettings);
-            check(store.loadSettings().oneKeyRun.guardMs == 140, "historical guard defaults migrate exactly as AHK");
+            check(store.loadSettings().oneKeyRun.guardMs == 150, "historical guard defaults migrate to the current default");
         }
         auto customGuard = settings; customGuard.oneKeyRun.guardMs = 247; store.saveSettings(customGuard);
         check(store.loadSettings().oneKeyRun.guardMs == 247, "custom guard value is retained");
+        customGuard.oneKeyRun.guardMs = 140; store.saveSettings(customGuard);
+        check(store.loadSettings().oneKeyRun.guardMs == 140, "explicit 140ms guard is kept (only hinted in the UI)");
 
         check(store.loadSettings().theme == L"dark", "theme defaults to dark");
         auto themed = store.loadSettings(); themed.theme = L"light"; store.saveSettings(themed);

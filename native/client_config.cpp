@@ -427,7 +427,7 @@ std::vector<Rule> buildRules(const Profile& profile, const Settings& settings) {
 Store::Store(std::wstring path) : path_(std::move(path)) {}
 Settings Store::loadSettings() const {
     const Ini ini(path_); Settings s; const auto& section = settingsSection;
-    s.autoStart = ini.num(section,L"SettingAutoStart",0,0,1) != 0;
+    s.autoStart = ini.num(section,L"SettingAutoStart",1,0,1) != 0;
     s.onSystemStart = ini.num(section,L"SettingOnSystemStart",0,0,1) != 0;
     s.blockWin = ini.num(section,L"SettingBlockWin",0,0,1) != 0;
     s.lastPreset = ini.get(section,L"LastPreset");
@@ -436,10 +436,10 @@ Settings Store::loadSettings() const {
     for (size_t i = 0; i < 4; ++i) s.oneKeyRun.keys[i] = ini.get(section,directionFields[i],s.oneKeyRun.keys[i]);
     s.oneKeyRun.pressMs = ini.num(section,L"OneKeyRunPressDelay",30,1,1000);
     s.oneKeyRun.gapMs = ini.num(section,L"OneKeyRunGapDelay",30,1,1000);
-    s.oneKeyRun.guardMs = ini.num(section,L"OneKeyRunGuardDelay",140,140,1000);
-    // Match OneKeyRunGetGuardDelay's migration of historical default values.
+    s.oneKeyRun.guardMs = ini.num(section,L"OneKeyRunGuardDelay",kDefaultGuardMs,kMinGuardMs,kMaxGuardMs);
+    // Historical AHK default values migrate to the current default, as OneKeyRunGetGuardDelay did.
     if (s.oneKeyRun.guardMs == 350 || s.oneKeyRun.guardMs == 200 || s.oneKeyRun.guardMs == 180)
-        s.oneKeyRun.guardMs = 140;
+        s.oneKeyRun.guardMs = kDefaultGuardMs;
     s.oneKeyRun.toggleHotkey = ini.get(section,L"OneKeyRunToggleHotKey",L"F10");
     s.theme = equal(ini.get(section,L"SettingTheme",L"dark"), L"light") ? L"light" : L"dark";
     return s;
@@ -447,8 +447,8 @@ Settings Store::loadSettings() const {
 Profile Store::loadProfile(const std::wstring& name) const {
     const Ini ini(path_); Profile p; p.name = name; const auto section = profilePrefix + name;
     p.keys = splitKeys(ini.get(section,L"keys"));
-    p.downMs = ini.num(section,L"AutoFireDownMs",10,1,100);
-    p.upMs = ini.num(section,L"AutoFireUpMs",10,1,100);
+    p.downMs = ini.num(section,L"AutoFireDownMs",kDefaultFireMs,1,100);
+    p.upMs = ini.num(section,L"AutoFireUpMs",kDefaultFireMs,1,100);
     p.lvRen = ini.num(section,L"LvRenState",0,0,1) != 0;
     p.zhanFa = ini.num(section,L"ZhanFaState",0,0,1) != 0;
     p.jianZong = ini.num(section,L"JianZongState",0,0,1) != 0;

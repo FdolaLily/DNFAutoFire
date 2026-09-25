@@ -212,13 +212,22 @@ struct Controller::Context final : InputSink {
         if (vk == VK_PAUSE) input.ki.wVk = static_cast<WORD>(vk);
         else {
             input.ki.wScan = static_cast<WORD>(scan & 0xff);
-            input.ki.dwFlags = KEYEVENTF_SCANCODE | ((scan & 0x100) ? KEYEVENTF_EXTENDEDKEY : 0);
+            input.ki.dwFlags = (scan & 0x100) ? KEYEVENTF_EXTENDEDKEY : 0;
+            // Run directions keep the AHK `scXX` form. Combo steps use AHK's
+            // `vkFFscXX` (ComboSendKey -> SendIP) so chat receives no text.
+            if (isDirection(key)) input.ki.dwFlags |= KEYEVENTF_SCANCODE;
+            else input.ki.wVk = 0xFF;
         }
         if (!down) input.ki.dwFlags |= KEYEVENTF_KEYUP;
         input.ki.dwExtraInfo = kInputMarker;
         if (SendInput(1, &input, sizeof(INPUT)) != 1) { fail(GetLastError()); return false; }
         owned[inputId(key)] = down ? key : 0;
         return true;
+    }
+    bool isDirection(KeyCode key) const {
+        for (const auto direction : plan.directions)
+            if (direction && inputId(direction) == inputId(key)) return true;
+        return false;
     }
     bool releaseOwned() {
         for (unsigned attempt = 0; attempt < 3; ++attempt) {

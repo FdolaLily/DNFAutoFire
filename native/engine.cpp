@@ -12,6 +12,9 @@ namespace {
 constexpr UINT kPhysicalMessage = WM_APP + 0x31;
 // AHK v1.1.37.02 keyboard_mouse.h: KEY_IGNORE_LEVEL(0).
 constexpr ULONG_PTR kAhkSendLevelZero = 0xFFC3D44D;
+// Unassigned VK used by the AHK version's `vkFFscXX`: DNF still sees the scan
+// code, but chat/IME text input gets no WM_CHAR from autofire pulses.
+constexpr WORD kTextlessVk = 0xFF;
 struct Key {
     unsigned scan, vk, trigger_count = 0, delay_us = 0;
     bool manual = true;
@@ -91,11 +94,16 @@ LRESULT CALLBACK keyboard_proc(int code, WPARAM message, LPARAM value) {
                         SetEvent(e->stop);
                     }
                 }
+                // Like the AHK `$*scXX` blocking hotkey, the first physical Down
+                // passes through once so a chat box receives exactly one
+                // character; only OS typematic repeats are swallowed. Pulses are
+                // vkFF + scan code: the game reads the scan code, while
+                // TranslateMessage cannot turn VK 0xFF into WM_CHAR text.
                 // Never swallow a physical Up: its first Down may have passed
                 // through outside DNF or before this engine was started. The
                 // scheduler still releases only its own injected Down states.
                 const HWND target = e->target.load();
-                if (target && GetForegroundWindow() == target && down) return 1;
+                if (target && GetForegroundWindow() == target && down && !changed) return 1;
                 break;
             }
         }
@@ -310,8 +318,11 @@ API void* AF_Start(const unsigned* descriptors, unsigned count, unsigned down_us
         key.down.ki.dwExtraInfo = kAhkSendLevelZero;
         if (key.vk == VK_PAUSE) key.down.ki.wVk = VK_PAUSE;
         else {
+            // AHK `vkFFscXX`: no KEYEVENTF_SCANCODE, so Windows keeps VK 0xFF
+            // instead of mapping the scan code to a character key.
+            key.down.ki.wVk = kTextlessVk;
             key.down.ki.wScan = key.scan & 0xFF;
-            key.down.ki.dwFlags = KEYEVENTF_SCANCODE | ((key.scan & 0x100) ? KEYEVENTF_EXTENDEDKEY : 0);
+            key.down.ki.dwFlags = (key.scan & 0x100) ? KEYEVENTF_EXTENDEDKEY : 0;
         }
         key.up = key.down;
         key.up.ki.dwFlags |= KEYEVENTF_KEYUP;

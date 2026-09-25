@@ -8,6 +8,11 @@
 
 namespace dafclient {
 
+// A duplicate launch posts this registered message to the running client's main
+// window, which then shows itself with a friendly notice instead of failing silently.
+constexpr wchar_t kMainWindowClass[] = L"DAF.Native.Client";
+constexpr wchar_t kShowRunningMessage[] = L"DNFAutoFire.Client.ShowRunning.{B797BFB2-305A-44DC-9E06-76D6CC424419}";
+
 struct UiCallbacks {
     std::function<bool(const Profile&, const Settings&)> start;
     std::function<bool()> stop;
@@ -26,7 +31,9 @@ public:
     ~ClientUi();
     ClientUi(const ClientUi&) = delete;
     ClientUi& operator=(const ClientUi&) = delete;
-    bool create(bool visible = true);
+    // visible: real client with tray icon; showWindow=false keeps the main
+    // window hidden (tray only) so an auto-started client never flashes.
+    bool create(bool visible = true, bool showWindow = true);
     HWND window() const;
     const Profile& currentProfile() const;
     const Settings& settings() const;

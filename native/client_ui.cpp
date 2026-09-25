@@ -23,9 +23,10 @@ constexpr UINT kTrayMessage = WM_APP + 0x27;
 constexpr UINT_PTR kSaveTimer = 0xDA01, kAnimTimer = 0xDA02;
 constexpr UINT kSaveDelayMs = 400;
 constexpr float kW = 1280.f, kH = 800.f;
-constexpr wchar_t kVersion[] = L"v0.1.6";
-constexpr wchar_t kFullVersion[] = L"v0.1.6.0";
-enum TrayCommand : UINT { TrayShow = 1, TrayQuick, TrayStart, TrayStop, TrayExit };
+constexpr wchar_t kVersion[] = L"v0.2.0";
+constexpr wchar_t kFullVersion[] = L"v0.2.0.0";
+enum TrayCommand : UINT { TrayToggle = 1, TrayQuick, TrayShow, TrayExit };
+constexpr float kTrayMenuW = 232.f;
 
 // Hit ids. Stable ids let hover and press states survive a repaint.
 enum : int {
@@ -34,12 +35,13 @@ enum : int {
     IdClassLink, IdLvRow, IdZfRow, IdJzRow, IdLvSw, IdZfSw, IdJzSw, IdComboSw, IdComboLink, IdRunSw, IdRunLink,
     IdMenuRename, IdMenuClone, IdMenuDelete, IdMenuPanel, IdAddCombo, IdScopeAll, IdScopeOne,
     IdGuardDec, IdGuardInc, IdGapDec, IdGapInc, IdPressDec, IdPressInc, IdJzDec, IdJzInc,
-    IdAutoSw, IdLoginSw, IdWinSw, IdExtPanel,
+    IdAutoSw, IdLoginSw, IdWinSw, IdExtPanel, IdQuickChip,
     IdKey = 1000, IdExtKey = 1200, IdTab = 1300, IdOverflowItem = 1400,
     IdComboSelect = 2000, IdComboDelete = 2100, IdComboDelay = 2200,
     IdCapRun = 3000, IdCapRunHotkey = 3010, IdCapQuick, IdCapLvShot, IdCapZfShot, IdCapJz, IdCapLvAdd, IdCapZfAdd,
     IdCapComboTrigger = 3100, IdCapComboStep = 3200,
-    IdChipLv = 4000, IdChipZf = 4100
+    IdChipLv = 4000, IdChipZf = 4100,
+    IdComboStepRemove = 6000 // + combo * 8 + step
 };
 
 D2D1_RECT_F box(float x, float y, float w, float h) { return D2D1::RectF(x, y, x + w, y + h); }
@@ -178,7 +180,9 @@ struct ClientUi::Impl {
     HWND main = nullptr, quick = nullptr, nameEdit = nullptr, numberEdit = nullptr;
     HFONT sansFont = nullptr, monoFont = nullptr;
     HBRUSH editBrush = nullptr;
-    Canvas canvas, quickCanvas;
+    Canvas canvas, quickCanvas, trayCanvas;
+    HWND trayMenuWnd = nullptr;
+    int trayHover = -1;
     float scale = 1.f;
     bool visibleUi = false, running = false, dirty = false, trayAdded = false, animating = false;
     Settings options;
@@ -195,7 +199,7 @@ struct ClientUi::Impl {
     std::vector<int> hiddenTabs;
     Capture capture;
     int errorId = 0; std::wstring errorText;
-    std::wstring message; bool messageError = false;
+    std::wstring message; bool messageError = false, messageHint = false;
     int comboSel = 0;
     float scroll = 0.f, contentHeight = 0.f;
     Edit editing = Edit::None; int editCombo = -1, editStep = -1;
@@ -206,6 +210,7 @@ struct ClientUi::Impl {
     ~Impl() {
         if (trayAdded) Shell_NotifyIconW(NIM_DELETE, &tray);
         if (quick && IsWindow(quick)) DestroyWindow(quick);
+        if (trayMenuWnd && IsWindow(trayMenuWnd)) DestroyWindow(trayMenuWnd);
         if (main && IsWindow(main)) DestroyWindow(main);
         for (HGDIOBJ o : {HGDIOBJ(sansFont), HGDIOBJ(monoFont), HGDIOBJ(editBrush)}) if (o) DeleteObject(o);
     }
@@ -273,7 +278,17 @@ struct ClientUi::Impl {
     void refreshCount() {
         for (size_t i = 0; i < names.size(); ++i) if (names[i] == profile.name && i < counts.size()) counts[i] = keyCount(profile);
     }
-    void showMessage(const std::wstring& text, bool isError) { message = text; messageError = isError; invalidate(); }
+    void showMessage(const std::wstring& text, bool isError) { message = text; messageError = isError; messageHint = false; invalidate(); }
+    // Friendly advisory (not an error): shown in the warm hint colour.
+    void showHint(const std::wstring& text) { message = text; messageError = false; messageHint = true; invalidate(); }
+    static std::wstring timingHint() {
+        const auto ms = std::to_wstring(kDefaultFireMs);
+        return L"按下/抬起低于 " + ms + L"ms 时，游戏可能来不及识别，出现漏键或技能释放不稳；建议保持 " + ms + L"ms 及以上。";
+    }
+    static std::wstring guardHint() {
+        const auto ms = std::to_wstring(kDefaultGuardMs);
+        return L"搓招保护低于 " + ms + L"ms 时，搓招指令容易被误判为奔跑；建议保持 " + ms + L"ms 及以上。";
+    }
     void setError(int id, const std::wstring& text) { errorId = id; errorText = text; invalidate(); }
     void clearError() { errorId = 0; errorText.clear(); }
 
@@ -346,6 +361,18 @@ struct ClientUi::Impl {
     }
     void setTiming(unsigned down, unsigned up) {
         profile.downMs = std::clamp(down, 1u, 100u); profile.upMs = std::clamp(up, 1u, 100u); changed();
+        if (profile.downMs < kDefaultFireMs || profile.upMs < kDefaultFireMs) showHint(timingHint());
+    }
+    // Validates and stores the in-game quick-switch hotkey; errors are shown on the field `id`.
+    bool applyQuickHotkey(int id, const std::wstring& k) {
+        const auto hotkey = parseHotkey(k);
+        if (!hotkey) { setError(id, L"请设置快速切换热键"); return false; }
+        const auto other = parseHotkey(options.oneKeyRun.toggleHotkey);
+        if (other && other.key.physical_id() == hotkey.key.physical_id() && other.modifiers == hotkey.modifiers) {
+            setError(id, L"与一键奔跑开关热键相同"); return false;
+        }
+        if (k != options.quickSwitchHotkey) { options.quickSwitchHotkey = k; changed(); }
+        return true;
     }
     void setRunScope(bool perProfile) {
         if (profile.usePresetRunKeys == perProfile) return;
@@ -377,7 +404,7 @@ struct ClientUi::Impl {
             if (!tray.hIcon) tray.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
             tray.uFlags = NIF_TIP | NIF_ICON; Shell_NotifyIconW(NIM_MODIFY, &tray);
         }
-        updateAnimation(); invalidate(); invalidateQuick();
+        updateAnimation(); invalidate(); invalidateQuick(); invalidateTray();
     }
     void toggleRun() {
         options.oneKeyRun.enabled = !options.oneKeyRun.enabled;
@@ -399,7 +426,10 @@ struct ClientUi::Impl {
         if (errorId && errorId != id) clearError();
         SetFocus(main); updateAnimation(); invalidate();
     }
-    void cancelCapture() { if (capture) { capture = Capture{}; updateAnimation(); invalidate(); } }
+    void cancelCapture() {
+        if (errorId == IdQuickChip) clearError(); // The header has no room for a stale error.
+        if (capture) { capture = Capture{}; updateAnimation(); invalidate(); }
+    }
     bool captureKey(WPARAM vk, LPARAM lParam) {
         if (!capture) return false;
         if (vk == VK_ESCAPE) { cancelCapture(); return true; }
@@ -504,7 +534,7 @@ struct ClientUi::Impl {
         canvas.fillCircle(on ? x + 26 : x + 10, y + 10, 8, on ? t.onAccent : t.text3);
         hit(r, id, std::move(click));
     }
-    void stepper(int idDec, int idInc, float x, float y, float w, const std::wstring& value, std::function<void()> dec, std::function<void()> inc) {
+    void stepper(int idDec, int idInc, float x, float y, float w, const std::wstring& value, std::function<void()> dec, std::function<void()> inc, bool warn = false) {
         const auto& t = theme();
         const auto r = box(x, y, w, 32);
         canvas.fillRound(r, 8, t.surface2); canvas.insetRing(r, 8, t.line, 1);
@@ -514,7 +544,7 @@ struct ClientUi::Impl {
         canvas.line(x + 11.5f, y + 16, x + 19.5f, y + 16, hovered(idDec) ? t.text : t.text2, 1.4f);
         canvas.line(x + w - 20, y + 16, x + w - 12, y + 16, hovered(idInc) ? t.text : t.text2, 1.4f);
         canvas.line(x + w - 16, y + 12, x + w - 16, y + 20, hovered(idInc) ? t.text : t.text2, 1.4f);
-        canvas.text(value, mono(13), x + w / 2, y + 16, t.text, Align::Center);
+        canvas.text(value, mono(13), x + w / 2, y + 16, warn ? t.combo : t.text, Align::Center);
         hit(minus, idDec, std::move(dec)); hit(plus, idInc, std::move(inc));
     }
     float kbd(float x, float cy, const std::wstring& label) {
@@ -632,7 +662,7 @@ struct ClientUi::Impl {
         canvas.text(kVersion, mono(11, 400), x, 22, t.text3);
         const bool dark = options.theme != L"light";
         iconButton(IdTheme, 1100, 6, dark ? Icon::Sun : Icon::Moon, [this, dark] {
-            options.theme = dark ? L"light" : L"dark"; saveTheme(); applyEditColors(); invalidate(); invalidateQuick();
+            options.theme = dark ? L"light" : L"dark"; saveTheme(); applyEditColors(); invalidate(); invalidateQuick(); invalidateTray();
         });
         iconButton(IdSettings, 1142, 6, Icon::Gear, [this] { openDrawer(drawer == Drawer::Settings ? Drawer::None : Drawer::Settings); });
         canvas.fill(box(1188, 13, 1, 18), t.line2);
@@ -667,8 +697,11 @@ struct ClientUi::Impl {
         hit(pr, IdPower, [this] { if (running) stop(); else start(true); });
 
         // Tabs with overflow.
-        const std::wstring quickLabel = hotkeyLabel(options.quickSwitchHotkey);
-        const float groupW = 16 + canvas.textWidth(quickLabel, mono(11)) + 14 + 8 + canvas.textWidth(L"游戏内切换", sans(12));
+        // In-game quick-switch hotkey: the keycap itself is a capture field (click, press a combination).
+        const bool quickListening = capture.id == IdQuickChip, quickBad = errorId == IdQuickChip;
+        const std::wstring quickLabel = quickListening ? L"按下组合键…" : hotkeyLabel(options.quickSwitchHotkey);
+        const std::wstring quickNote = quickBad ? errorText : (quickListening ? L"Esc 取消" : L"游戏内切换");
+        const float groupW = 16 + canvas.textWidth(quickLabel, mono(11)) + 14 + 8 + canvas.textWidth(quickNote, sans(12));
         const float limit = pr.left - 16 - groupW - 1 - 14 - 32 - 6 - 40;
         std::vector<float> widths; float total = 0; size_t active = 0;
         for (size_t i = 0; i < names.size(); ++i) { widths.push_back(tabWidth(i)); total += widths.back() + 6; if (names[i] == profile.name) active = i; }
@@ -723,8 +756,23 @@ struct ClientUi::Impl {
         x += 32 + 14;
         canvas.fill(box(x, 67, 1, 22), t.line);
         x += 17;
-        x += kbd(x, cy, quickLabel) + 8;
-        canvas.text(L"游戏内切换", sans(12), x, cy, t.text3);
+        {
+            const float w = canvas.textWidth(quickLabel, mono(11)) + 14;
+            const auto r = box(x, cy - 11, w, 22);
+            const bool hot = hovered(IdQuickChip);
+            canvas.keyShape(r, 5, hot || quickListening ? t.capTopH : t.capTop, t.capSide, 2);
+            if (quickListening) {
+                const float phase = float((GetTickCount() - animStart) % 1000) / 1000.f;
+                canvas.ring(r, 5, mix(t.accentSoft, t.accent, 0.5f + 0.5f * std::cos(phase * 6.2831853f)), 2);
+            } else canvas.ring(r, 5, quickBad ? t.ledBad : (hot ? t.text3 : t.line2), quickBad ? 2.f : 1.f);
+            canvas.text(quickLabel, mono(11), x + 7, cy - 1, quickListening ? t.accentText : t.text);
+            const float noteW = canvas.textWidth(quickNote, sans(12));
+            canvas.text(quickNote, sans(12), x + w + 8, cy, quickBad ? t.danger : (hot && !quickListening ? t.text2 : t.text3));
+            // Chip and caption form one generous click target.
+            hit(box(x - 2, 62, w + 8 + noteW + 4, 32), IdQuickChip, [this] {
+                beginCapture(IdQuickChip, true, [this](const std::wstring& k) { return applyQuickHotkey(IdQuickChip, k); });
+            });
+        }
         activeTabRight = 40;
         float ax = 40;
         for (size_t i : shown) { if (i == active) activeTabRight = ax + widths[i]; ax += widths[i] + 6; }
@@ -867,10 +915,11 @@ struct ClientUi::Impl {
         {
             const float x = 40, cx = x + 19;
             card(x); cardTitle(cx, t.accent, L"连发时序");
-            if (profile.downMs != 10 || profile.upMs != 10) {
-                const float w = canvas.textWidth(L"恢复 10 + 10", sans(12.5f));
-                canvas.text(L"恢复 10 + 10", sans(12.5f), cx + 250 - w, 537, hovered(IdResetTiming) ? t.text : t.text2);
-                hit(box(cx + 250 - w, 527, w, 20), IdResetTiming, [this] { setTiming(10, 10); });
+            if (profile.downMs != kDefaultFireMs || profile.upMs != kDefaultFireMs) {
+                const std::wstring reset = L"恢复 " + std::to_wstring(kDefaultFireMs) + L" + " + std::to_wstring(kDefaultFireMs);
+                const float w = canvas.textWidth(reset, sans(12.5f));
+                canvas.text(reset, sans(12.5f), cx + 250 - w, 537, hovered(IdResetTiming) ? t.text : t.text2);
+                hit(box(cx + 250 - w, 527, w, 20), IdResetTiming, [this] { setTiming(kDefaultFireMs, kDefaultFireMs); });
             }
             wchar_t hz[32]{}; swprintf_s(hz, L"%.1f", 1000.0 / double(profile.downMs + profile.upMs));
             Font big = mono(32, 600); big.tracking = -0.64f;
@@ -887,14 +936,16 @@ struct ClientUi::Impl {
             }
             canvas.line(cx, 635.5f, cx + 250, 635.5f, t.line2, 1, true);
             canvas.polyline(pts.data(), pts.size(), t.accent, 1.6f);
-            canvas.text(L"按下 ms", sans(11.5f), cx, 659.5f, t.text2);
-            canvas.text(L"抬起 ms", sans(11.5f), cx + 130, 659.5f, t.text2);
+            // Below the default is allowed but flagged: a warm label and value, plus a footer hint on change.
+            const bool fastDown = profile.downMs < kDefaultFireMs, fastUp = profile.upMs < kDefaultFireMs;
+            canvas.text(fastDown ? L"按下 ms · 偏快" : L"按下 ms", sans(11.5f), cx, 659.5f, fastDown ? t.combo : t.text2);
+            canvas.text(fastUp ? L"抬起 ms · 偏快" : L"抬起 ms", sans(11.5f), cx + 130, 659.5f, fastUp ? t.combo : t.text2);
             stepper(IdDownDec, IdDownInc, cx, 673, 120, std::to_wstring(profile.downMs),
                 [this] { setTiming(profile.downMs - (profile.downMs > 1 ? 1 : 0), profile.upMs); },
-                [this] { setTiming(profile.downMs + 1, profile.upMs); });
+                [this] { setTiming(profile.downMs + 1, profile.upMs); }, fastDown);
             stepper(IdUpDec, IdUpInc, cx + 130, 673, 120, std::to_wstring(profile.upMs),
                 [this] { setTiming(profile.downMs, profile.upMs - (profile.upMs > 1 ? 1 : 0)); },
-                [this] { setTiming(profile.downMs, profile.upMs + 1); });
+                [this] { setTiming(profile.downMs, profile.upMs + 1); }, fastUp);
         }
         // 2. Class aids.
         {
@@ -953,7 +1004,7 @@ struct ClientUi::Impl {
             const float w = kbd(ix, 595.6f, hotkeyLabel(options.oneKeyRun.toggleHotkey));
             canvas.text(L"游戏内开关", sans(12), ix + w + 8, 595.6f, t.text2);
             const std::wstring guard = std::to_wstring(options.oneKeyRun.guardMs) + L"ms";
-            canvas.text(guard, mono(12), ix, 623.3f, t.text);
+            canvas.text(guard, mono(12), ix, 623.3f, options.oneKeyRun.guardMs < kDefaultGuardMs ? t.combo : t.text);
             canvas.text(L"后起跑", sans(12), ix + canvas.textWidth(guard, mono(12)) + 8, 623.3f, t.text2);
             canvas.text(profile.usePresetRunKeys ? L"方向键仅本方案" : L"方向键所有方案共用", sans(12), ix, 648.7f, t.text2);
             canvas.setOpacity(1.f);
@@ -976,9 +1027,13 @@ struct ClientUi::Impl {
         const Font f = sans(12);
         const std::wstring key = hoveredKey();
         if (!message.empty()) {
-            canvas.text(message, f, x, cy, messageError ? t.danger : t.text2, Align::Left, 780);
+            canvas.text(message, f, x, cy, messageError ? t.danger : (messageHint ? t.combo : t.text2), Align::Left, 780);
+        } else if (capture.id == IdQuickChip) {
+            canvas.text(L"按下新的游戏内切换热键，可带 Ctrl / Alt / Shift，例如 Alt + PgUp · Esc 取消", f, x, cy, t.text2);
         } else if (capture) {
             canvas.text(L"按下要绑定的按键 · 右键清除 · Esc 取消", f, x, cy, t.text2);
+        } else if (hover == IdQuickChip) {
+            canvas.text(L"点击修改游戏内快速切换方案的热键", f, x, cy, t.text2);
         } else if (!key.empty()) {
             const bool on = keyOn(key);
             const Occupied occ = occupied(key);
@@ -1066,7 +1121,14 @@ struct ClientUi::Impl {
             const float fw = captureField(trigId, 937, cy - 18, 64, labelOf(c.trigger), false, [this, i](const std::wstring& k) {
                 if (!k.empty()) for (size_t j = 0; j < profile.combos.size(); ++j)
                     if (j != i && physical(profile.combos[j].trigger) == physical(k)) { setError(IdCapComboTrigger + int(i), L"已是其他连招的触发键"); return false; }
-                profile.combos[i].trigger = k; changed(); return true;
+                auto& combo = profile.combos[i];
+                // The trigger is usually also the first skill: seed it as step 1, and keep
+                // step 1 in sync while it still mirrors the previous trigger.
+                if (!k.empty()) {
+                    if (combo.steps.empty()) combo.steps.push_back({k, kDefaultComboDelayMs});
+                    else if (!combo.trigger.empty() && physical(combo.steps.front().key) == physical(combo.trigger)) combo.steps.front().key = k;
+                }
+                combo.trigger = k; changed(); return true;
             }, false, t.combo, 1.5f);
             if (errorId == trigId) canvas.text(errorText, sans(12), 937 + fw + 12, cy, t.danger);
             iconButton(IdComboDelete + int(i), 1207, cy - 16, Icon::Trash, [this, i] {
@@ -1086,7 +1148,7 @@ struct ClientUi::Impl {
                         auto& steps = profile.combos[i].steps;
                         if (k.empty()) { if (j < steps.size()) steps.erase(steps.begin() + ptrdiff_t(j)); }
                         else if (j < steps.size()) steps[j].key = k;
-                        else steps.push_back({k, 0});
+                        else steps.push_back({k, kDefaultComboDelayMs});
                         changed(); return true;
                     }, false, {}, 1.f, L"＋ 输出键");
                 if (filled) {
@@ -1100,6 +1162,11 @@ struct ClientUi::Impl {
                     } else canvas.text(std::to_wstring(c.steps[j].intervalMs), mono(12.5f), field.right - 8, ry + 18, t.text, Align::Right);
                     bodyHit(field, delayId, [this, i, j] { beginDelay(int(i), int(j)); });
                     canvas.text(L"ms", sans(12), px + 74, ry + 18, t.text3);
+                    iconButton(IdComboStepRemove + int(i) * 8 + int(j), 1207, ry + 2, Icon::Close, [this, i, j] {
+                        commitEdit(); cancelCapture();
+                        auto& steps = profile.combos[i].steps;
+                        if (j < steps.size()) { steps.erase(steps.begin() + ptrdiff_t(j)); changed(); }
+                    }, 14);
                 }
             }
             y += h + 10;
@@ -1164,17 +1231,23 @@ struct ClientUi::Impl {
             canvas.icon(Icon::ArrowRight, rx + canvas.textWidth(L"奔跑", mono(11)) + 6, y + 7.5f, 15, t.run);
         }
         y += 44;
-        const auto row = [&](const std::wstring& label, int dec, int inc, unsigned& value, unsigned minimum, unsigned maximum, unsigned step) {
+        // advisory: values below it stay allowed but show a warm hint beside the label and in the footer.
+        const auto row = [&](const std::wstring& label, int dec, int inc, unsigned& value, unsigned minimum, unsigned maximum, unsigned step,
+                             unsigned advisory, const std::wstring& inline_, std::wstring (*hint)()) {
+            const bool low = advisory && value < advisory;
             canvas.text(label, sans(13), 864, y + 16, t.text);
+            if (low) canvas.text(inline_, sans(12), 864 + canvas.textWidth(label, sans(13)) + 12, y + 16, t.combo);
+            const auto after = [this, &value, advisory, hint] { changed(); if (advisory && value < advisory && hint) showHint(hint()); };
             stepper(dec, inc, 1084, y, 140, std::to_wstring(value),
-                [this, &value, minimum, step] { value = value >= minimum + step ? value - step : minimum; changed(); },
-                [this, &value, maximum, step] { value = std::min(maximum, value + step); changed(); });
+                [&value, minimum, step, after] { value = value >= minimum + step ? value - step : minimum; after(); },
+                [&value, maximum, step, after] { value = std::min(maximum, value + step); after(); }, low);
             canvas.text(L"ms", sans(12), 1236, y + 16, t.text3);
             y += 42;
         };
-        row(L"搓招保护", IdGuardDec, IdGuardInc, options.oneKeyRun.guardMs, 140, 1000, 10);
-        row(L"双击间隔", IdGapDec, IdGapInc, options.oneKeyRun.gapMs, 1, 1000, 5);
-        row(L"按键脉冲", IdPressDec, IdPressInc, options.oneKeyRun.pressMs, 1, 1000, 5);
+        row(L"搓招保护", IdGuardDec, IdGuardInc, options.oneKeyRun.guardMs, kMinGuardMs, kMaxGuardMs, 10,
+            kDefaultGuardMs, L"低于 " + std::to_wstring(kDefaultGuardMs) + L"ms 易误触奔跑", &Impl::guardHint);
+        row(L"双击间隔", IdGapDec, IdGapInc, options.oneKeyRun.gapMs, 1, 1000, 5, 0, L"", nullptr);
+        row(L"按键脉冲", IdPressDec, IdPressInc, options.oneKeyRun.pressMs, 1, 1000, 5, 0, L"", nullptr);
         y += 14;
         sectionTitle(y, L"游戏内开关"); y += 27.4f;
         captureField(IdCapRunHotkey, 864, y, 64, hotkeyLabel(options.oneKeyRun.toggleHotkey), false, [this](const std::wstring& k) {
@@ -1291,7 +1364,7 @@ struct ClientUi::Impl {
         };
         sectionTitle(y, L"启动"); y += 27.4f;
         group(y, 81);
-        switchRow(y + .5f, L"打开软件后自动启动连发", IdAutoSw, options.autoStart, true);
+        switchRow(y + .5f, L"打开后直接开始连发，窗口隐藏到托盘", IdAutoSw, options.autoStart, true);
         switchRow(y + 40.5f, L"登录 Windows 时运行", IdLoginSw, options.onSystemStart, false);
         y += 81 + 24;
         sectionTitle(y, L"游戏内"); y += 27.4f;
@@ -1300,15 +1373,8 @@ struct ClientUi::Impl {
         canvas.text(L"快速切换方案", sans(13, 500), 881, y + 40.5f + 28, t.text);
         const std::wstring quickLabel = hotkeyLabel(options.quickSwitchHotkey);
         const float qw = std::max(64.f, canvas.textWidth(quickLabel, mono(13)) + 24);
-        captureField(IdCapQuick, 1239 - qw, y + 40.5f + 10, 64, quickLabel, false, [this](const std::wstring& k) {
-            const auto hotkey = parseHotkey(k);
-            if (!hotkey) { setError(IdCapQuick, L"请设置快速切换热键"); return false; }
-            const auto other = parseHotkey(options.oneKeyRun.toggleHotkey);
-            if (other && other.key.physical_id() == hotkey.key.physical_id() && other.modifiers == hotkey.modifiers) {
-                setError(IdCapQuick, L"与一键奔跑开关热键相同"); return false;
-            }
-            options.quickSwitchHotkey = k; changed(); return true;
-        }, true);
+        captureField(IdCapQuick, 1239 - qw, y + 40.5f + 10, 64, quickLabel, false,
+            [this](const std::wstring& k) { return applyQuickHotkey(IdCapQuick, k); }, true);
         y += 97;
         if (errorId == IdCapQuick) { canvas.text(errorText, sans(12), 864, y + 16, t.danger); y += 24; }
         y += 24;
@@ -1430,27 +1496,145 @@ struct ClientUi::Impl {
         if (nameEdit) InvalidateRect(nameEdit, nullptr, TRUE);
         if (numberEdit) InvalidateRect(numberEdit, nullptr, TRUE);
     }
+    // ---------------------------------------------------------------- tray menu
+    // A themed popup drawn with the same tokens as the main window (replaces the
+    // system menu, which cannot follow the light/dark theme).
+    static constexpr float kTrayTop = 62.f, kTrayRow = 36.f, kTraySep = 13.f;
+    static constexpr TrayCommand kTrayItems[] = {TrayToggle, TrayQuick, TrayShow, TrayExit};
+    float trayMenuHeight() const { return kTrayTop + 3 * kTrayRow + kTraySep + kTrayRow + 6; }
+    D2D1_RECT_F trayItemRect(int index) const {
+        const float y = kTrayTop + index * kTrayRow + (index >= 3 ? kTraySep : 0.f);
+        return box(6, y, kTrayMenuW - 12, kTrayRow);
+    }
+    int trayItemAt(float x, float y) const {
+        for (int i = 0; i < 4; ++i) if (contains(trayItemRect(i), x, y)) return i;
+        return -1;
+    }
+    void invalidateTray() { if (trayMenuWnd) InvalidateRect(trayMenuWnd, nullptr, FALSE); }
+    void hideTrayMenu() {
+        trayHover = -1;
+        if (trayMenuWnd && IsWindowVisible(trayMenuWnd)) ShowWindow(trayMenuWnd, SW_HIDE);
+    }
     void trayMenu() {
-        HMENU m = CreatePopupMenu();
-        AppendMenuW(m, MF_STRING, TrayShow, L"显示主界面");
-        AppendMenuW(m, MF_STRING, TrayQuick, L"快速切换方案");
-        AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(m, MF_STRING | (running ? MF_GRAYED : 0), TrayStart, L"启动连发");
-        AppendMenuW(m, MF_STRING | (running ? 0 : MF_GRAYED), TrayStop, L"停止连发");
-        AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(m, MF_STRING, TrayExit, L"退出");
-        POINT p{}; GetCursorPos(&p); SetForegroundWindow(main);
-        const UINT selected = TrackPopupMenu(m, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, p.x, p.y, 0, main, nullptr);
-        DestroyMenu(m);
-        switch (selected) {
-        case TrayShow: show(); break;
-        case TrayQuick: showQuick(); break;
-        case TrayStart: start(true); break;
-        case TrayStop: stop(); break;
-        case TrayExit: quit(); break;
+        if (!trayMenuWnd) return;
+        refreshNames();
+        POINT p{}; GetCursorPos(&p);
+        MONITORINFO info{}; info.cbSize = sizeof(info);
+        GetMonitorInfoW(MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST), &info);
+        const RECT& wa = info.rcWork;
+        const int w = int(std::lround(kTrayMenuW * scale)), h = int(std::lround(trayMenuHeight() * scale));
+        // Like TrackPopupMenu: open at the cursor, flipping left/up when it would leave the work area.
+        int x = p.x + w > wa.right ? p.x - w : p.x;
+        int y = p.y + h > wa.bottom ? p.y - h : p.y;
+        x = std::max<int>(wa.left, std::min<int>(x, wa.right - w));
+        y = std::max<int>(wa.top, std::min<int>(y, wa.bottom - h));
+        trayHover = -1;
+        SetWindowPos(trayMenuWnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
+        trayCanvas.resize(UINT(w), UINT(h));
+        ShowWindow(trayMenuWnd, SW_SHOW);
+        SetForegroundWindow(trayMenuWnd); SetFocus(trayMenuWnd);
+        invalidateTray();
+    }
+    void runTray(int index) {
+        if (index < 0 || index >= 4) return;
+        hideTrayMenu();
+        try {
+            switch (kTrayItems[index]) {
+            case TrayToggle: if (running) stop(); else start(true); break;
+            case TrayQuick: showQuick(); break;
+            case TrayShow: show(); break;
+            case TrayExit: quit(); break;
+            }
+        } catch (...) { show(); showMessage(L"操作未完成，请检查设置与配置文件。", true); }
+    }
+    void paintTrayMenu() {
+        const auto& t = theme();
+        auto& c = trayCanvas;
+        if (!c.begin(t.surface)) return;
+        const float w = kTrayMenuW, h = trayMenuHeight();
+        c.insetRing(box(0, 0, w, h), 0, t.line2, 1);
+        // Header: status LED, product name, state and current profile.
+        if (running) { c.glow(22, 31, 3.5f, 11.5f, t.ledGlow); c.fillCircle(22, 31, 3.5f, t.led); }
+        else c.fillCircle(22, 31, 3.5f, t.ledOff);
+        c.text(L"DAF 连发工具", sans(13, 600), 36, 22, t.text);
+        const std::wstring state = running ? L"运行中" : L"连发未启动";
+        const Font small = sans(11.5f);
+        c.text(state, small, 36, 40, running ? t.accentText : t.text3);
+        c.text(L"· " + profile.name, small, 36 + c.textWidth(state, small) + 5, 40, t.text3, Align::Left, w - 56 - c.textWidth(state, small));
+        c.fill(box(0, 55, w, 1), t.line);
+        for (int i = 0; i < 4; ++i) {
+            const auto r = trayItemRect(i);
+            const bool hot = trayHover == i, exit = kTrayItems[i] == TrayExit;
+            Color exitSoft = t.danger; exitSoft.a = t.dark ? .14f : .10f;
+            if (hot) c.fillRound(r, 8, exit ? exitSoft : t.surface2);
+            const float cy = (r.top + r.bottom) / 2;
+            const Color fg = exit && hot ? t.danger : t.text;
+            switch (kTrayItems[i]) {
+            case TrayToggle: {
+                c.text(running ? L"停止连发" : L"启动连发", sans(13), 18, cy, fg);
+                const float sx = r.right - 12 - 32;
+                const auto sw = box(sx, cy - 9, 32, 18);
+                if (running) c.fillRound(sw, 9, t.accent);
+                else { c.fillRound(sw, 9, t.surface3); c.insetRing(sw, 9, t.line2, 1); }
+                c.fillCircle(running ? sx + 23 : sx + 9, cy, 7, running ? t.onAccent : t.text3);
+                break;
+            }
+            case TrayQuick: {
+                c.text(L"快速切换方案", sans(13), 18, cy, fg);
+                const auto label = hotkeyLabel(options.quickSwitchHotkey);
+                if (!label.empty()) {
+                    const float kw = c.textWidth(label, mono(11)) + 14;
+                    const auto kr = box(r.right - 12 - kw, cy - 11, kw, 22);
+                    c.keyShape(kr, 5, t.capTop, t.capSide, 2); c.ring(kr, 5, t.line2, 1);
+                    c.text(label, mono(11), kr.left + 7, cy - 1, t.text2);
+                }
+                break;
+            }
+            case TrayShow: c.text(L"显示主界面", sans(13), 18, cy, fg); break;
+            case TrayExit: c.text(L"退出", sans(13), 18, cy, fg); break;
+            }
+        }
+        const float sepY = trayItemRect(2).bottom + kTraySep / 2;
+        c.fill(box(12, sepY, w - 24, 1), t.line);
+        c.end();
+    }
+    LRESULT trayProc(UINT message, WPARAM wParam, LPARAM lParam) {
+        switch (message) {
+        case WM_ERASEBKGND: return 1;
+        case WM_PAINT: { PAINTSTRUCT ps{}; BeginPaint(trayMenuWnd, &ps); try { paintTrayMenu(); } catch (...) {} EndPaint(trayMenuWnd, &ps); return 0; }
+        case WM_SIZE: trayCanvas.resize(LOWORD(lParam), HIWORD(lParam)); return 0;
+        case WM_ACTIVATE: if (LOWORD(wParam) == WA_INACTIVE) hideTrayMenu(); return 0;
+        case WM_MOUSEACTIVATE: return MA_ACTIVATE;
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, trayMenuWnd, 0}; TrackMouseEvent(&track);
+            const int index = trayItemAt(float(GET_X_LPARAM(lParam)) / scale, float(GET_Y_LPARAM(lParam)) / scale);
+            if (index != trayHover) { trayHover = index; invalidateTray(); }
+            return 0;
+        }
+        case WM_MOUSELEAVE: if (trayHover != -1) { trayHover = -1; invalidateTray(); } return 0;
+        case WM_LBUTTONUP: case WM_RBUTTONUP:
+            runTray(trayItemAt(float(GET_X_LPARAM(lParam)) / scale, float(GET_Y_LPARAM(lParam)) / scale));
+            return 0;
+        case WM_KEYDOWN: case WM_SYSKEYDOWN:
+            if (wParam == VK_ESCAPE || wParam == VK_MENU || wParam == VK_F10) hideTrayMenu();
+            else if (wParam == VK_UP) { trayHover = trayHover <= 0 ? 3 : trayHover - 1; invalidateTray(); }
+            else if (wParam == VK_DOWN) { trayHover = trayHover >= 3 ? 0 : trayHover + 1; invalidateTray(); }
+            else if (wParam == VK_RETURN || wParam == VK_SPACE) runTray(trayHover);
+            return 0;
+        case WM_CLOSE: hideTrayMenu(); return 0;
         default: break;
         }
-        PostMessageW(main, WM_NULL, 0, 0);
+        return DefWindowProcW(trayMenuWnd, message, wParam, lParam);
+    }
+    static LRESULT CALLBACK trayWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+        auto* self = reinterpret_cast<Impl*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+        if (message == WM_NCCREATE) {
+            self = static_cast<Impl*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);
+            SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            if (self) self->trayMenuWnd = window;
+        }
+        if (!self || window != self->trayMenuWnd) return DefWindowProcW(window, message, wParam, lParam);
+        return self->trayProc(message, wParam, lParam);
     }
     void addTray() {
         tray = {}; tray.cbSize = sizeof(tray); tray.hWnd = main; tray.uID = 1;
@@ -1507,6 +1691,12 @@ struct ClientUi::Impl {
         if (window == self->quick) return self->quickProc(message, wParam, lParam);
         static const UINT taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
         if (message == taskbarCreated && self->main) { self->addTray(); return 0; }
+        static const UINT showRunning = RegisterWindowMessageW(kShowRunningMessage);
+        if (showRunning && message == showRunning && window == self->main) {
+            self->show();
+            self->showHint(L"DAF 连发工具已经在运行，无需重复打开；关闭窗口后可在任务栏右下角托盘找到它。");
+            return 0;
+        }
         switch (message) {
         case WM_NCCALCSIZE: if (wParam) return 0; break;
         case WM_NCACTIVATE: return DefWindowProcW(window, message, wParam, -1);
@@ -1613,14 +1803,18 @@ struct ClientUi::Impl {
         WNDCLASSEXW wc{}; wc.cbSize = sizeof(wc); wc.hInstance = instance; wc.lpfnWndProc = windowProc;
         wc.style = CS_DBLCLKS; wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1)); if (!wc.hIcon) wc.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
-        wc.lpszClassName = L"DAF.Native.Client"; RegisterClassExW(&wc);
+        wc.lpszClassName = kMainWindowClass; RegisterClassExW(&wc);
         wc.style = CS_DROPSHADOW; wc.lpszClassName = L"DAF.Native.QuickSwitch"; RegisterClassExW(&wc);
+        wc.lpfnWndProc = trayWindowProc; wc.lpszClassName = L"DAF.Native.TrayMenu"; RegisterClassExW(&wc);
         const int w = int(std::lround(kW * scale)), h = int(std::lround(kH * scale));
         const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
-        main = CreateWindowExW(WS_EX_APPWINDOW, L"DAF.Native.Client", L"DAF 连发工具", style,
+        main = CreateWindowExW(WS_EX_APPWINDOW, kMainWindowClass, L"DAF 连发工具", style,
             work.left + (work.right - work.left - w) / 2, work.top + (work.bottom - work.top - h) / 2, w, h,
             nullptr, nullptr, instance, this);
         if (!main) return false;
+        // The client runs elevated; let a non-elevated duplicate launch reach it through UIPI.
+        if (const UINT showRunning = RegisterWindowMessageW(kShowRunningMessage))
+            ChangeWindowMessageFilterEx(main, showRunning, MSGFLT_ALLOW, nullptr);
         const MARGINS margins{0, 0, 0, 1};
         DwmExtendFrameIntoClientArea(main, &margins);
         SetWindowPos(main, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
@@ -1628,6 +1822,12 @@ struct ClientUi::Impl {
             0, 0, int(360 * scale), int(400 * scale), main, nullptr, instance, this);
         const DWORD round = 2; // DWMWCP_ROUND on Windows 11; ignored elsewhere.
         if (quick) DwmSetWindowAttribute(quick, static_cast<DWMWINDOWATTRIBUTE>(33), &round, sizeof(round));
+        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, L"DAF.Native.TrayMenu", L"DAF 连发工具", WS_POPUP,
+            0, 0, int(kTrayMenuW * scale), int(trayMenuHeight() * scale), main, nullptr, instance, this); // Sets trayMenuWnd.
+        if (trayMenuWnd) {
+            const DWORD small = 3; // DWMWCP_ROUNDSMALL, the Windows 11 menu radius; ignored elsewhere.
+            DwmSetWindowAttribute(trayMenuWnd, static_cast<DWMWINDOWATTRIBUTE>(33), &small, sizeof(small));
+        }
         sansFont = CreateFontW(-int(std::lround(13 * scale)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, Fonts::gdiFamily(Face::Sans));
         monoFont = CreateFontW(-int(std::lround(12.5f * scale)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -1636,6 +1836,7 @@ struct ClientUi::Impl {
         applyEditColors();
         canvas.attach(main, scale);
         if (quick) quickCanvas.attach(quick, scale);
+        if (trayMenuWnd) trayCanvas.attach(trayMenuWnd, scale);
         setRunning(false);
         if (visible) addTray();
         visibleUi = visible;
@@ -1645,9 +1846,9 @@ struct ClientUi::Impl {
 
 ClientUi::ClientUi(HINSTANCE instance, Store& store, UiCallbacks callbacks) : impl_(new Impl(instance, store, std::move(callbacks))) {}
 ClientUi::~ClientUi() = default;
-bool ClientUi::create(bool visible) {
+bool ClientUi::create(bool visible, bool showWindow) {
     const bool created = impl_->create(visible);
-    if (created && visible) impl_->show();
+    if (created && visible && showWindow) impl_->show();
     return created;
 }
 HWND ClientUi::window() const { return impl_->main; }

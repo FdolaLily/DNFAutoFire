@@ -1,5 +1,5 @@
 #Requires -RunAsAdministrator
-param([string]$ExpectedHash, [string]$Version = '0.1.6.0', [string]$Source = '')
+param([string]$ExpectedHash, [string]$Version = '0.2.0.0', [string]$Source = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $distExe = Join-Path $root 'dist\DNFAutoFire.exe'
